@@ -33,10 +33,10 @@ pull-image:
 		break; \
 	done
 
+RELEASE_IMAGE = ${IMAGE_NAME}:$(subst refs/tags/,,${GITHUB_REF})
 promote-image:
 ifndef GITHUB_REF
 	$(error GITHUB_REF is not set)
 endif
-	RELEASE_IMAGE = ${IMAGE_NAME}:$(GITHUB_REF:refs/tags/%=%)
 	docker tag ${TEST_IMAGE} ${RELEASE_IMAGE}
 	docker push ${RELEASE_IMAGE}
