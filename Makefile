@@ -16,6 +16,7 @@ update-src:
 	done
 
 build-image:
+	kind --version
 	cd kubernetes-src; \
 	KUBE_GIT_VERSION=${VERSION} kind build node-image --image ${TEST_IMAGE} --kube-root .
 
