@@ -1,4 +1,6 @@
-VERSION = v1.18.9
+RELEASE_BRANCH = 1-18
+VERSION := v$(subst -,.,$(RELEASE_BRANCH)).9
+SOURCE_URL = https://distro.eks.amazonaws.com/kubernetes-${RELEASE_BRANCH}/releases/1/artifacts/kubernetes/${VERSION}/kubernetes-src.tar.gz
 GIT_SHA := $(shell echo `git rev-parse --verify HEAD^{commit}`)
 IMAGE_NAME = ghcr.io/kbst/kind-eks-d
 TEST_IMAGE = ${IMAGE_NAME}:${GIT_SHA}
@@ -6,7 +8,7 @@ TEST_IMAGE = ${IMAGE_NAME}:${GIT_SHA}
 default: update-src build-image test-image
 
 update-src:
-	wget https://distro.eks.amazonaws.com/kubernetes-1-18/releases/1/artifacts/kubernetes/${VERSION}/kubernetes-src.tar.gz
+	wget ${SOURCE_URL}
 	rm -rf kubernetes-src
 	mkdir kubernetes-src
 	tar -xzf kubernetes-src.tar.gz -C kubernetes-src/
