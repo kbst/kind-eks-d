@@ -17,7 +17,7 @@ require (
 	github.com/googleapis/gnostic v0.1.0
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.4.0
+	github.com/stretchr/testify v1.5.1
 	go.etcd.io/etcd v0.0.0-20191023171146-3cf2f69b5738
 	google.golang.org/grpc v1.26.0
 	gopkg.in/yaml.v2 v2.2.8
@@ -34,6 +34,7 @@ require (
 )
 
 replace (
+	golang.org/x/net => golang.org/x/net v0.0.0-20191004110552-13f9640d40b9
 	golang.org/x/sys => golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a // pinned to release-branch.go1.13
 	golang.org/x/tools => golang.org/x/tools v0.0.0-20190821162956-65e3620a7ae7 // pinned to release-branch.go1.13
 	k8s.io/api => ../api

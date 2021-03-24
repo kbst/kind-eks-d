@@ -2,8 +2,11 @@
 package quobyte
 
 import (
+	"k8s.io/kubernetes/pkg/proxy/util"
+	"net"
 	"net/http"
 	"regexp"
+	"time"
 )
 
 // retry policy codes
@@ -34,8 +37,21 @@ func (client *QuobyteClient) GetAPIRetryPolicy() string {
 
 // NewQuobyteClient creates a new Quobyte API client
 func NewQuobyteClient(url string, username string, password string) *QuobyteClient {
+	dialContext := (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		DualStack: true,
+	}).DialContext
+	tr := &http.Transport{
+		DialContext:           util.NewSafeDialContext(dialContext),
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
 	return &QuobyteClient{
-		client:         &http.Client{},
+		client:         &http.Client{Transport: tr},
 		url:            url,
 		username:       username,
 		password:       password,

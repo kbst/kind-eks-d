@@ -20,8 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	mathrand "math/rand"
 	"net"
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,7 +43,8 @@ const (
 	IPv4ZeroCIDR = "0.0.0.0/0"
 
 	// IPv6ZeroCIDR is the CIDR block for the whole IPv6 address space
-	IPv6ZeroCIDR = "::/0"
+	IPv6ZeroCIDR               = "::/0"
+	EnvExtraProxyBlackListCIDR = "EXTRA_PROXY_BLACKLIST_CIDR"
 )
 
 var (
@@ -123,6 +128,29 @@ func IsProxyableHostname(ctx context.Context, resolv Resolver, hostname string) 
 	return nil
 }
 
+func IsProxyableHostnameV2(ctx context.Context, resolv Resolver, blackListNetworks []*net.IPNet, hostname string) error {
+	resp, err := resolv.LookupIPAddr(ctx, hostname)
+	if err != nil {
+		return err
+	}
+
+	if len(resp) == 0 {
+		return ErrNoAddresses
+	}
+
+	for _, host := range resp {
+		if err := isProxyableIP(host.IP); err != nil {
+			return err
+		}
+		for _, network := range blackListNetworks {
+			if network.Contains(host.IP) {
+				return ErrAddressNotAllowed
+			}
+		}
+	}
+	return nil
+}
+
 // GetLocalAddrs returns a list of all network addresses on the local system
 func GetLocalAddrs() ([]net.IP, error) {
 	var localAddrs []net.IP
@@ -157,6 +185,35 @@ func ShouldSkipService(svcName types.NamespacedName, service *v1.Service) bool {
 		return true
 	}
 	return false
+}
+
+func NewSafeDialContext(dialContext func(context.Context, string, string) (net.Conn, error)) func(context.Context, string, string) (net.Conn, error) {
+	var blackListNetworks []*net.IPNet
+	blackListCIDRs := os.Getenv(EnvExtraProxyBlackListCIDR)
+	if blackListCIDRs != "" {
+		for _, cidr := range strings.Split(blackListCIDRs, ",") {
+			_, ipNet, _ := net.ParseCIDR(cidr)
+			blackListNetworks = append(blackListNetworks, ipNet)
+		}
+	}
+
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		start := time.Now()
+		id := mathrand.Int63() // So you can match begins/ends in the log.
+		klog.Infof("[%x: %v] Dialing...", id, addr)
+		defer func() {
+			klog.Infof("[%x: %v] Dialed in %v.", id, addr, time.Since(start))
+		}()
+
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		if err := IsProxyableHostnameV2(ctx, &net.Resolver{}, blackListNetworks, host); err != nil {
+			return nil, err
+		}
+		return dialContext(ctx, network, addr)
+	}
 }
 
 // GetNodeAddresses return all matched node IP addresses based on given cidr slice.

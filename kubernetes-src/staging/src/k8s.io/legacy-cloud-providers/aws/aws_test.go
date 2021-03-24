@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -1391,6 +1391,53 @@ func TestDescribeLoadBalancerOnEnsure(t *testing.T) {
 	c.EnsureLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
 
+func TestCheckProtocol(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		port        v1.ServicePort
+		wantErr     error
+	}{
+		{
+			name:        "TCP with ELB",
+			annotations: make(map[string]string),
+			port:        v1.ServicePort{Protocol: v1.ProtocolTCP, Port: int32(8080)},
+			wantErr:     nil,
+		},
+		{
+			name:        "TCP with NLB",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			port:        v1.ServicePort{Protocol: v1.ProtocolTCP, Port: int32(8080)},
+			wantErr:     nil,
+		},
+		{
+			name:        "UDP with ELB",
+			annotations: make(map[string]string),
+			port:        v1.ServicePort{Protocol: v1.ProtocolUDP, Port: int32(8080)},
+			wantErr:     fmt.Errorf("Protocol UDP not supported by load balancer"),
+		},
+		{
+			name:        "UDP with NLB",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			port:        v1.ServicePort{Protocol: v1.ProtocolUDP, Port: int32(8080)},
+			wantErr:     nil,
+		},
+	}
+	for _, test := range tests {
+		tt := test
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := checkProtocol(tt.port, tt.annotations)
+			if tt.wantErr != nil && err == nil {
+				t.Errorf("Expected error: want=%s got =%s", tt.wantErr, err)
+			}
+			if tt.wantErr == nil && err != nil {
+				t.Errorf("Unexpected error: want=%s got =%s", tt.wantErr, err)
+			}
+		})
+	}
+}
+
 func TestBuildListener(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1983,22 +2030,157 @@ func newMockedFakeAWSServices(id string) *FakeAWSServices {
 	return s
 }
 
-func TestAzToRegion(t *testing.T) {
-	testCases := []struct {
-		az     string
-		region string
-	}{
-		{"us-west-2a", "us-west-2"},
-		{"us-west-2-lax-1a", "us-west-2"},
-		{"ap-northeast-2a", "ap-northeast-2"},
-		{"us-gov-east-1a", "us-gov-east-1"},
-		{"us-iso-east-1a", "us-iso-east-1"},
-		{"us-isob-east-1a", "us-isob-east-1"},
-	}
+func TestConstructStsEndpoint(t *testing.T) {
+	t.Run("returns an error when the arn is invalid", func(t *testing.T) {
+		arn := "asdf"
+		region := "us-east-1"
+		endpoint, err := ConstructStsEndpoint(arn, region)
+		assert.Equal(t, endpoint, "")
+		require.Error(t, err)
+	})
 
-	for _, testCase := range testCases {
-		result, err := azToRegion(testCase.az)
-		assert.NoError(t, err)
-		assert.Equal(t, testCase.region, result)
+	t.Run("returns sts.us-east-1.amazonaws.com when region/partition is us-east-1/aws", func(t *testing.T) {
+		arn := "arn:aws:eks:us-east-1:1234:cluster/asdf"
+		region := "us-east-1"
+		endpoint, err := ConstructStsEndpoint(arn, region)
+		assert.Equal(t, endpoint, "sts.us-east-1.amazonaws.com")
+		require.NoError(t, err)
+	})
+
+	t.Run("returns sts.cn-northwest-1.amazonaws.com.cn when region/partition is cn-northwest-1/aws-cn", func(t *testing.T) {
+		arn := "arn:aws-cn:eks:cn-northwest-1:1234:cluster/asdf"
+		region := "cn-northwest-1"
+		endpoint, err := ConstructStsEndpoint(arn, region)
+		assert.Equal(t, endpoint, "sts.cn-northwest-1.amazonaws.com.cn")
+		require.NoError(t, err)
+	})
+
+	t.Run("returns sts.us-gov-east-1.amazonaws.com when region/partion is us-gov-east-1/aws-us-gov", func(t *testing.T) {
+		arn := "arn:aws-us-gov:eks:us-gov-east-1:1234:cluster/asdf"
+		region := "us-gov-east-1"
+		endpoint, err := ConstructStsEndpoint(arn, region)
+		assert.Equal(t, endpoint, "sts.us-gov-east-1.amazonaws.com")
+		require.NoError(t, err)
+	})
+
+	t.Run("returns sts.me-south-1.amazonaws.com when region/partion is me-south-1/aws", func(t *testing.T) {
+		arn := "arn:aws:eks:me-south-1:1234:cluster/asdf"
+		region := "me-south-1"
+		endpoint, err := ConstructStsEndpoint(arn, region)
+		assert.Equal(t, endpoint, "sts.me-south-1.amazonaws.com")
+		require.NoError(t, err)
+	})
+}
+
+func TestNodeAddressesForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+	c.cfg.Global.IPAddress = "1.2.3.4"
+	c.cfg.Global.PrivateDNSName = "ip-1-2-3-4.compute.amazon.com"
+
+	nodeAddresses, _ := c.NodeAddresses(context.TODO(), "fargate-ip-1-2-3-4.compute.amazon.com")
+	verifyNodeAddressesForFargate(t, nodeAddresses)
+}
+
+func TestBuildFargateTaskFromDescribeNetworkInterfaces(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+	c.cfg.Global.ProviderIDPrefix = "fargateTest"
+
+	awsInstance, _ := c.buildAWSInstanceForFargateNode("fargate-ip-1-2-3-4.compute.amazon.com")
+	assert.Equal(t, "vpc-123456", awsInstance.vpcID)
+	assert.Equal(t, "subnet-123456", awsInstance.subnetID)
+	assert.Equal(t, "1.2.3.4", awsInstance.addresses[0].Address)
+	assert.Equal(t, "us-west-2b", awsInstance.availabilityZone)
+	assert.Equal(t, "fargateTest/fargate-ip-1-2-3-4.compute.amazon.com", awsInstance.awsID)
+}
+
+func TestNodeAddressesByProviderIDForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+	c.cfg.Global.IPAddress = "1.2.3.4"
+	c.cfg.Global.PrivateDNSName = "ip-1-2-3-4.compute.amazon.com"
+
+	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "fargateTest/fargate-ip-1-2-3-4.compute.amazon.com")
+	verifyNodeAddressesForFargate(t, nodeAddresses)
+}
+
+func verifyNodeAddressesForFargate(t *testing.T, nodeAddresses []v1.NodeAddress) {
+	assert.Equal(t, 2, len(nodeAddresses))
+	assert.Equal(t, "1.2.3.4", nodeAddresses[0].Address)
+	assert.Equal(t, v1.NodeInternalIP, nodeAddresses[0].Type)
+	assert.Equal(t, "ip-1-2-3-4.compute.amazon.com", nodeAddresses[1].Address)
+	assert.Equal(t, v1.NodeInternalDNS, nodeAddresses[1].Type)
+}
+
+func TestBuildFargateTaskUsingPrivateIpFromDescribeNetworkInterfaces(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+	c.cfg.Global.ProviderIDPrefix = "fargateTest"
+	nodeName := "fargate-1.2.3.4"
+
+	awsInstance, _ := c.buildAWSInstanceForFargateNode(nodeName)
+	assert.Equal(t, "1.2.3.4", awsInstance.addresses[0].Address)
+	assert.Equal(t, string(awsInstance.nodeName), nodeName)
+	assert.Equal(t, "fargateTest/fargate-1.2.3.4", awsInstance.awsID)
+	assert.Equal(t, 1, len(awsInstance.addresses))
+}
+
+func TestCloud_sortELBSecurityGroupList(t *testing.T) {
+	type args struct {
+		securityGroupIDs []string
+		annotations      map[string]string
+	}
+	tests := []struct {
+		name                 string
+		args                 args
+		wantSecurityGroupIDs []string
+	}{
+		{
+			name: "with no annotation",
+			args: args{
+				securityGroupIDs: []string{"sg-1"},
+				annotations:      map[string]string{},
+			},
+			wantSecurityGroupIDs: []string{"sg-1"},
+		},
+		{
+			name: "with service.beta.kubernetes.io/aws-load-balancer-security-groups",
+			args: args{
+				securityGroupIDs: []string{"sg-2", "sg-1", "sg-3"},
+				annotations: map[string]string{
+					"service.beta.kubernetes.io/aws-load-balancer-security-groups": "sg-3,sg-2,sg-1",
+				},
+			},
+			wantSecurityGroupIDs: []string{"sg-3", "sg-2", "sg-1"},
+		},
+		{
+			name: "with service.beta.kubernetes.io/aws-load-balancer-extra-security-groups",
+			args: args{
+				securityGroupIDs: []string{"sg-2", "sg-1", "sg-3", "sg-4"},
+				annotations: map[string]string{
+					"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups": "sg-3,sg-2,sg-1",
+				},
+			},
+			wantSecurityGroupIDs: []string{"sg-4", "sg-3", "sg-2", "sg-1"},
+		},
+		{
+			name: "with both annotation",
+			args: args{
+				securityGroupIDs: []string{"sg-2", "sg-1", "sg-3", "sg-4", "sg-5", "sg-6"},
+				annotations: map[string]string{
+					"service.beta.kubernetes.io/aws-load-balancer-security-groups":       "sg-3,sg-2,sg-1",
+					"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups": "sg-6,sg-5",
+				},
+			},
+			wantSecurityGroupIDs: []string{"sg-3", "sg-2", "sg-1", "sg-4", "sg-6", "sg-5"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Cloud{}
+			c.sortELBSecurityGroupList(tt.args.securityGroupIDs, tt.args.annotations)
+			assert.Equal(t, tt.wantSecurityGroupIDs, tt.args.securityGroupIDs)
+		})
 	}
 }

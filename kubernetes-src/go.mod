@@ -20,7 +20,7 @@ require (
 	github.com/Rican7/retry v0.1.0 // indirect
 	github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e
 	github.com/auth0/go-jwt-middleware v0.0.0-20170425171159-5493cabe49f7 // indirect
-	github.com/aws/aws-sdk-go v1.28.2
+	github.com/aws/aws-sdk-go v1.34.24
 	github.com/bazelbuild/bazel-gazelle v0.19.1-0.20191105222053-70208cbdc798
 	github.com/bazelbuild/buildtools v0.0.0-20190917191645-69366ca98f89
 	github.com/blang/semver v3.5.0+incompatible
@@ -96,7 +96,7 @@ require (
 	github.com/opencontainers/runc v1.0.0-rc10
 	github.com/opencontainers/runtime-spec v1.0.0 // indirect
 	github.com/opencontainers/selinux v1.3.1-0.20190929122143-5215b1806f52
-	github.com/pkg/errors v0.8.1
+	github.com/pkg/errors v0.9.1
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/pquerna/ffjson v0.0.0-20180717144149-af8b230fcd20 // indirect
 	github.com/prometheus/client_golang v1.0.0
@@ -113,7 +113,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.3.2
 	github.com/storageos/go-api v0.0.0-20180912212459-343b3eff91fc
-	github.com/stretchr/testify v1.4.0
+	github.com/stretchr/testify v1.5.1
 	github.com/syndtr/gocapability v0.0.0-20180916011248-d98352740cb2 // indirect
 	github.com/thecodeteam/goscaleio v0.1.0
 	github.com/urfave/negroni v1.0.0 // indirect
@@ -123,7 +123,7 @@ require (
 	go.etcd.io/etcd v0.0.0-20191023171146-3cf2f69b5738
 	golang.org/x/crypto v0.0.0-20200220183623-bac4c82f6975
 	golang.org/x/lint v0.0.0-20190409202823-959b441ac422
-	golang.org/x/net v0.0.0-20191004110552-13f9640d40b9
+	golang.org/x/net v0.0.0-20200202094626-16171245cfb2
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	golang.org/x/sys v0.0.0-20191022100944-742c48ecaeb7
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
@@ -206,7 +206,7 @@ replace (
 	github.com/armon/consul-api => github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6
 	github.com/asaskevich/govalidator => github.com/asaskevich/govalidator v0.0.0-20190424111038-f61b66f89f4a
 	github.com/auth0/go-jwt-middleware => github.com/auth0/go-jwt-middleware v0.0.0-20170425171159-5493cabe49f7
-	github.com/aws/aws-sdk-go => github.com/aws/aws-sdk-go v1.28.2
+	github.com/aws/aws-sdk-go => github.com/aws/aws-sdk-go v1.34.24
 	github.com/bazelbuild/bazel-gazelle => github.com/bazelbuild/bazel-gazelle v0.19.1-0.20191105222053-70208cbdc798
 	github.com/bazelbuild/buildtools => github.com/bazelbuild/buildtools v0.0.0-20190917191645-69366ca98f89
 	github.com/bazelbuild/rules_go => github.com/bazelbuild/rules_go v0.0.0-20190719190356-6dae44dc5cab
@@ -286,6 +286,7 @@ replace (
 	github.com/go-openapi/swag => github.com/go-openapi/swag v0.19.5
 	github.com/go-openapi/validate => github.com/go-openapi/validate v0.19.5
 	github.com/go-ozzo/ozzo-validation => github.com/go-ozzo/ozzo-validation v3.5.0+incompatible
+	github.com/go-sql-driver/mysql => github.com/go-sql-driver/mysql v1.5.0
 	github.com/go-stack/stack => github.com/go-stack/stack v1.8.0
 	github.com/go-toolsmith/astcast => github.com/go-toolsmith/astcast v1.0.0
 	github.com/go-toolsmith/astcopy => github.com/go-toolsmith/astcopy v1.0.0
@@ -356,7 +357,7 @@ replace (
 	github.com/inconshreveable/mousetrap => github.com/inconshreveable/mousetrap v1.0.0
 	github.com/jellevandenhooff/dkim => github.com/jellevandenhooff/dkim v0.0.0-20150330215556-f50fe3d243e1
 	github.com/jimstudt/http-authentication => github.com/jimstudt/http-authentication v0.0.0-20140401203705-3eca13d6893a
-	github.com/jmespath/go-jmespath => github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
+	github.com/jmespath/go-jmespath => github.com/jmespath/go-jmespath v0.3.0
 	github.com/jonboulle/clockwork => github.com/jonboulle/clockwork v0.1.0
 	github.com/json-iterator/go => github.com/json-iterator/go v1.1.8
 	github.com/jstemmer/go-junit-report => github.com/jstemmer/go-junit-report v0.0.0-20190106144839-af01ea7f8024
@@ -424,7 +425,7 @@ replace (
 	github.com/opencontainers/selinux => github.com/opencontainers/selinux v1.3.1-0.20190929122143-5215b1806f52
 	github.com/pelletier/go-toml => github.com/pelletier/go-toml v1.2.0
 	github.com/peterbourgon/diskv => github.com/peterbourgon/diskv v2.0.1+incompatible
-	github.com/pkg/errors => github.com/pkg/errors v0.8.1
+	github.com/pkg/errors => github.com/pkg/errors v0.9.1
 	github.com/pmezard/go-difflib => github.com/pmezard/go-difflib v1.0.0
 	github.com/pquerna/cachecontrol => github.com/pquerna/cachecontrol v0.0.0-20171018203845-0dec1b30a021
 	github.com/pquerna/ffjson => github.com/pquerna/ffjson v0.0.0-20180717144149-af8b230fcd20
@@ -461,7 +462,7 @@ replace (
 	github.com/spf13/viper => github.com/spf13/viper v1.3.2
 	github.com/storageos/go-api => github.com/storageos/go-api v0.0.0-20180912212459-343b3eff91fc
 	github.com/stretchr/objx => github.com/stretchr/objx v0.2.0
-	github.com/stretchr/testify => github.com/stretchr/testify v1.4.0
+	github.com/stretchr/testify => github.com/stretchr/testify v1.5.1
 	github.com/syndtr/gocapability => github.com/syndtr/gocapability v0.0.0-20180916011248-d98352740cb2
 	github.com/tarm/serial => github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
 	github.com/thecodeteam/goscaleio => github.com/thecodeteam/goscaleio v0.1.0
