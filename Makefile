@@ -6,14 +6,11 @@ TEST_IMAGE = ${IMAGE_NAME}:${GIT_SHA}
 default: update-src build-image test-image
 
 update-src:
-	wget https://beta.cdn.model-rocket.aws.dev/kubernetes-1-18/releases/1/artifacts/kubernetes/${VERSION}/kubernetes-src.tar.gz
+	wget https://distro.eks.amazonaws.com/kubernetes-1-18/releases/1/artifacts/kubernetes/${VERSION}/kubernetes-src.tar.gz
 	rm -rf kubernetes-src
 	mkdir kubernetes-src
 	tar -xzf kubernetes-src.tar.gz -C kubernetes-src/
 	rm -f kubernetes-src.tar.gz
-	for name in `ls kubernetes-src/`; \
-		do mv "kubernetes-src/$$name" "kubernetes-src/$${name//kubernetes/}"; \
-	done
 
 build-image:
 	kind --version
