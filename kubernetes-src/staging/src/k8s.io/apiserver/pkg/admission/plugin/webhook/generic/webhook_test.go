@@ -17,6 +17,7 @@ limitations under the License.
 package generic
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -30,6 +31,134 @@ import (
 	"k8s.io/apiserver/pkg/admission/plugin/webhook/namespace"
 	"k8s.io/apiserver/pkg/admission/plugin/webhook/object"
 )
+
+type testCase struct {
+	testName   string
+	gvk        schema.GroupVersionKind
+	namespace  string
+	objectName string
+	expectErr  string
+}
+
+type testInput struct {
+	expectedGroup, expectedVersion, expectedKind, expectedNamespace, expectedObjectName string
+}
+
+func generateDispatchTestCases(input testInput) []testCase {
+	const noErr = ""
+	return []testCase{
+		{fmt.Sprintf("%s %s in %s namespace", input.expectedObjectName, input.expectedKind, input.expectedNamespace),
+			schema.GroupVersionKind{input.expectedGroup, input.expectedVersion, input.expectedKind},
+			input.expectedNamespace,
+			input.expectedObjectName,
+			noErr,
+		},
+		{
+			fmt.Sprintf("%s %s in %s namespace with new version", input.expectedObjectName, input.expectedKind, input.expectedNamespace),
+			schema.GroupVersionKind{input.expectedGroup, "v2", input.expectedKind},
+			input.expectedNamespace,
+			input.expectedObjectName,
+			noErr,
+		},
+		{
+			fmt.Sprintf("%s %s with incorrect namespace", input.expectedObjectName, input.expectedKind),
+			schema.GroupVersionKind{input.expectedGroup, input.expectedVersion, input.expectedKind},
+			"foo",
+			input.expectedObjectName,
+			"not yet ready to handle request",
+		},
+		{
+			fmt.Sprintf("%s %s with incorrect name", input.expectedObjectName, input.expectedKind),
+			schema.GroupVersionKind{input.expectedGroup, input.expectedVersion, input.expectedKind},
+			input.expectedNamespace,
+			"foo",
+			"not yet ready to handle request",
+		},
+		{
+			fmt.Sprintf("%s %s with incorrect group", input.expectedObjectName, input.expectedKind),
+			schema.GroupVersionKind{"foo", input.expectedVersion, input.expectedKind},
+			input.expectedNamespace,
+			input.expectedObjectName,
+			"not yet ready to handle request",
+		},
+		{
+			fmt.Sprintf("%s %s with incorrect kind", input.expectedObjectName, input.expectedKind),
+			schema.GroupVersionKind{input.expectedGroup, input.expectedVersion, "foo"},
+			input.expectedNamespace,
+			input.expectedObjectName,
+			"not yet ready to handle request",
+		},
+	}
+}
+
+func TestDispatch(t *testing.T) {
+	const (
+		core                  = ""
+		endpoints             = "Endpoints"
+		kubeSystem            = "kube-system"
+		kubeControllerManager = "kube-controller-manager"
+		kubeScheduler         = "kube-scheduler"
+		coordinationGroup     = "coordination.k8s.io"
+		lease                 = "Lease"
+	)
+
+	var testcases []testCase
+	// kube-controller-mananger endpoint
+	testcases = append(testcases, generateDispatchTestCases(testInput{
+		expectedGroup:      core,
+		expectedKind:       endpoints,
+		expectedNamespace:  kubeSystem,
+		expectedObjectName: kubeControllerManager,
+	})...)
+	// kube-controller-mananger lease
+	testcases = append(testcases, generateDispatchTestCases(testInput{
+		expectedGroup:      coordinationGroup,
+		expectedKind:       lease,
+		expectedNamespace:  kubeSystem,
+		expectedObjectName: kubeControllerManager,
+	})...)
+	// kube-scheduler endpoint
+	testcases = append(testcases, generateDispatchTestCases(testInput{
+		expectedGroup:      core,
+		expectedKind:       endpoints,
+		expectedNamespace:  kubeSystem,
+		expectedObjectName: kubeScheduler,
+	})...)
+	// kube-scheduler lease
+	testcases = append(testcases, generateDispatchTestCases(testInput{
+		expectedGroup:      coordinationGroup,
+		expectedKind:       lease,
+		expectedNamespace:  kubeSystem,
+		expectedObjectName: kubeScheduler,
+	})...)
+
+	unReadyHandler := admission.NewHandler(admission.Create)
+	unReadyHandler.SetReadyFunc(func() bool { return false })
+	interfaces := &admission.RuntimeObjectInterfaces{}
+	a := &Webhook{Handler: unReadyHandler, namespaceMatcher: &namespace.Matcher{}, objectMatcher: &object.Matcher{}}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.testName, func(t *testing.T) {
+			// TODO: juqing@ 10/18/20: unReadyHandler takes 10 seconds in `WaitForReady`. Should mock that out.
+			t.Parallel()
+
+			attrs := admission.NewAttributesRecord(nil, nil, testcase.gvk, testcase.namespace, testcase.objectName, schema.GroupVersionResource{}, "", admission.Create, &metav1.CreateOptions{}, false, nil)
+
+			err := a.Dispatch(context.Background(), attrs, interfaces)
+			if err != nil {
+				if len(testcase.expectErr) == 0 {
+					t.Fatalf("didn't expect to fail, but failed with %+v", err)
+				}
+				if !strings.Contains(err.Error(), testcase.expectErr) {
+					t.Fatalf("expected error containing %q, got %s", testcase.expectErr, err.Error())
+				}
+				return
+			} else if len(testcase.expectErr) > 0 {
+				t.Fatalf("expected error %q, got no error and %+v", testcase.expectErr, attrs)
+			}
+		})
+	}
+}
 
 func TestShouldCallHook(t *testing.T) {
 	a := &Webhook{namespaceMatcher: &namespace.Matcher{}, objectMatcher: &object.Matcher{}}

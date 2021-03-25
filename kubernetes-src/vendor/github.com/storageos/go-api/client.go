@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"k8s.io/kubernetes/pkg/proxy/util"
 	"math/rand"
 	"net"
 	"net/http"
@@ -104,7 +105,7 @@ func (c *Client) ClientVersion() string {
 // (net.Dialer fulfills this interface) and named pipes (a shim using
 // winio.DialPipe)
 type Dialer interface {
-	Dial(network, address string) (net.Conn, error)
+	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // NewClient returns a Client instance ready for communication with the given
@@ -535,7 +536,7 @@ func (e *Error) Error() string {
 func defaultPooledTransport(dialer Dialer) *http.Transport {
 	transport := &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
-		Dial:                dialer.Dial,
+		DialContext:         util.NewSafeDialContext(dialer.DialContext),
 		TLSHandshakeTimeout: 5 * time.Second,
 		DisableKeepAlives:   false,
 		MaxIdleConnsPerHost: 1,

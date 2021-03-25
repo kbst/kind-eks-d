@@ -215,9 +215,39 @@ func (a *Webhook) Dispatch(ctx context.Context, attr admission.Attributes, o adm
 	if rules.IsWebhookConfigurationResource(attr) {
 		return nil
 	}
+	if isClusterCriticalResource(attr) {
+		return nil
+	}
 	if !a.WaitForReady() {
 		return admission.NewForbidden(attr, fmt.Errorf("not yet ready to handle request"))
 	}
 	hooks := a.hookSource.Webhooks()
 	return a.dispatcher.Dispatch(ctx, attr, o, hooks)
+}
+
+func isClusterCriticalResource(attr admission.Attributes) bool {
+	gvk := attr.GetKind()
+	name := attr.GetName()
+	ns := attr.GetNamespace()
+
+	const kubeControllerManager = "kube-controller-manager"
+	const kubeScheduler = "kube-scheduler"
+	const kubeSystem = "kube-system"
+
+	// TODO: juqing@ 10/16/20: the lease namespace, name or even Kind are configurable as flags.
+	// For simplicity, we use the default values which is how EKS clusters are getting configured.
+	if gvk.Group == "" && gvk.Kind == "Endpoints" {
+		if ns == kubeSystem && (name == kubeControllerManager || name == kubeScheduler) {
+			return true
+		}
+	}
+
+	// For 1.17+ clusters
+	if gvk.Group == "coordination.k8s.io" && gvk.Kind == "Lease" {
+		if ns == kubeSystem && (name == kubeControllerManager || name == kubeScheduler) {
+			return true
+		}
+	}
+
+	return false
 }

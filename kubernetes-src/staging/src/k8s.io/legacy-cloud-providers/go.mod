@@ -13,14 +13,14 @@ require (
 	github.com/Azure/go-autorest/autorest/to v0.2.0
 	github.com/Azure/go-autorest/autorest/validation v0.1.0 // indirect
 	github.com/GoogleCloudPlatform/k8s-cloud-provider v0.0.0-20190822182118-27a4ced34534
-	github.com/aws/aws-sdk-go v1.28.2
+	github.com/aws/aws-sdk-go v1.34.24
 	github.com/dnaeon/go-vcr v1.0.1 // indirect
 	github.com/golang/mock v1.3.1
 	github.com/gophercloud/gophercloud v0.1.0
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/rubiojr/go-vhd v0.0.0-20160810183302-0bfd3b39853c
 	github.com/satori/go.uuid v1.2.0 // indirect
-	github.com/stretchr/testify v1.4.0
+	github.com/stretchr/testify v1.5.1
 	github.com/vmware/govmomi v0.20.3
 	golang.org/x/crypto v0.0.0-20200220183623-bac4c82f6975
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
@@ -40,6 +40,7 @@ require (
 )
 
 replace (
+	golang.org/x/net => golang.org/x/net v0.0.0-20191004110552-13f9640d40b9
 	golang.org/x/sys => golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a // pinned to release-branch.go1.13
 	golang.org/x/tools => golang.org/x/tools v0.0.0-20190821162956-65e3620a7ae7 // pinned to release-branch.go1.13
 	k8s.io/api => ../api

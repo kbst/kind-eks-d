@@ -52,6 +52,7 @@ go_library(
         "//staging/src/k8s.io/component-base/metrics/legacyregistry:go_default_library",
         "//staging/src/k8s.io/csi-translation-lib/plugins:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws:go_default_library",
+        "//vendor/github.com/aws/aws-sdk-go/aws/arn:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws/awserr:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws/credentials:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds:go_default_library",

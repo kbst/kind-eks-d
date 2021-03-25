@@ -20,7 +20,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"k8s.io/kubernetes/pkg/proxy/util"
 	"math/rand"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -189,12 +191,27 @@ func (c *Client) doBasic(req *http.Request) (*http.Response, error) {
 		<-c.throttle
 	}()
 
-	httpClient := &http.Client{}
+	dialContext := (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		DualStack: true,
+	}).DialContext
+
+	tr := &http.Transport{
+		DialContext:           util.NewSafeDialContext(dialContext),
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	httpClient := &http.Client{Transport: tr}
 	if c.tlsClientConfig != nil {
 		httpClient.Transport = &http.Transport{
+			DialContext:           util.NewSafeDialContext(dialContext),
 			TLSClientConfig: c.tlsClientConfig,
 		}
 	}
+
 	httpClient.CheckRedirect = c.checkRedirect
 	return httpClient.Do(req)
 }

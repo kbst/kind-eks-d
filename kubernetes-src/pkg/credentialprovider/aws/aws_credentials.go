@@ -21,24 +21,31 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecr"
+	"github.com/aws/aws-sdk-go/service/sts"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/component-base/version"
 	"k8s.io/klog"
 	"k8s.io/kubernetes/pkg/credentialprovider"
+	k8saws "k8s.io/legacy-cloud-providers/aws"
 )
 
-var ecrPattern = regexp.MustCompile(`^(\d{12})\.dkr\.ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.amazonaws\.com(\.cn)?$`)
+var ecrPattern = regexp.MustCompile(`^(\d{12})\.dkr\.ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.(amazonaws\.com(\.cn)?|sc2s\.sgov\.gov|c2s\.ic\.gov)$`)
 
 // init registers a credential provider for each registryURLTemplate and creates
 // an ECR token getter factory with a new cache to store token getters
@@ -219,6 +226,35 @@ func newECRTokenGetter(region string) (tokenGetter, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO: Remove this once aws sdk is updated to latest version.
+	var provider credentials.Provider
+	ecrPullRoleArn := os.Getenv("ECR_PULL_ROLE_ARN")
+	assumeRoleRegion := os.Getenv("AWS_DEFAULT_REGION")
+	if ecrPullRoleArn != "" && assumeRoleRegion != "" {
+		stsEndpoint, err := k8saws.ConstructStsEndpoint(ecrPullRoleArn, assumeRoleRegion)
+		if err != nil {
+			return nil, err
+		}
+		klog.Infof("Using AWS assumed role, %v:%v:%v", ecrPullRoleArn, assumeRoleRegion, stsEndpoint)
+		provider = &stscreds.AssumeRoleProvider{
+			Client:  sts.New(sess, aws.NewConfig().WithRegion(assumeRoleRegion).WithEndpoint(stsEndpoint)),
+			RoleARN: ecrPullRoleArn,
+		}
+	} else {
+		provider = &ec2rolecreds.EC2RoleProvider{
+			Client: ec2metadata.New(sess),
+		}
+	}
+
+	creds := credentials.NewChainCredentials(
+		[]credentials.Provider{
+			&credentials.EnvProvider{},
+			provider,
+			&credentials.SharedCredentialsProvider{},
+		})
+	sess.Config.Credentials = creds
+
 	getter := &ecrTokenGetter{svc: ecr.New(sess)}
 	getter.svc.Handlers.Build.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/user-agent",
