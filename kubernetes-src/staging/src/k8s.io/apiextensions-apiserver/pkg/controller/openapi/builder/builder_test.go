@@ -172,8 +172,7 @@ func TestNewBuilder(t *testing.T) {
     },
     "embedded-object": {
       "x-kubernetes-embedded-resource": true,
-      "x-kubernetes-preserve-unknown-fields": true,
-      "type":"object"
+      "x-kubernetes-preserve-unknown-fields": true
     }
   },
   "x-kubernetes-group-version-kind":[{"group":"bar.k8s.io","kind":"Foo","version":"v1"}]
@@ -417,6 +416,17 @@ func TestNewBuilder(t *testing.T) {
 			gotListProperties := properties(got.listSchema.Properties)
 			if want := sets.NewString("apiVersion", "kind", "metadata", "items"); !gotListProperties.Equal(want) {
 				t.Fatalf("unexpected list properties, got: %s, expected: %s", gotListProperties.List(), want.List())
+			}
+
+			if e, a := (spec.StringOrArray{"string"}), got.listSchema.Properties["apiVersion"].Type; !reflect.DeepEqual(e, a) {
+				t.Errorf("expected %#v, got %#v", e, a)
+			}
+			if e, a := (spec.StringOrArray{"string"}), got.listSchema.Properties["kind"].Type; !reflect.DeepEqual(e, a) {
+				t.Errorf("expected %#v, got %#v", e, a)
+			}
+			listRef := got.listSchema.Properties["metadata"].Ref
+			if e, a := "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta", (&listRef).String(); e != a {
+				t.Errorf("expected %q, got %q", e, a)
 			}
 
 			gotListSchema := got.listSchema.Properties["items"].Items.Schema

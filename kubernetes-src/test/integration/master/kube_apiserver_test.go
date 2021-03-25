@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,10 +32,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/registry/generic/registry"
 	"k8s.io/client-go/kubernetes"
@@ -161,7 +162,7 @@ func TestOpenAPIDelegationChainPlumbing(t *testing.T) {
 	}
 
 	matchedExtension := false
-	extensionsPrefix := "/apis/" + apiextensions.GroupName
+	extensionsPrefix := "/apis/" + apiextensionsv1beta1.GroupName
 
 	matchedRegistration := false
 	registrationPrefix := "/apis/" + apiregistration.GroupName
@@ -412,8 +413,8 @@ func verifyEndpointsWithIPs(servers []*kubeapiservertesting.TestServer, ips []st
 }
 
 func testReconcilersMasterLease(t *testing.T, leaseCount int, masterCount int) {
-	var leaseServers []*kubeapiservertesting.TestServer
-	var masterCountServers []*kubeapiservertesting.TestServer
+	var leaseServers = make([]*kubeapiservertesting.TestServer, leaseCount)
+	var masterCountServers = make([]*kubeapiservertesting.TestServer, masterCount)
 	etcd := framework.SharedEtcd()
 
 	instanceOptions := &kubeapiservertesting.TestServerInstanceOptions{
@@ -423,16 +424,22 @@ func testReconcilersMasterLease(t *testing.T, leaseCount int, masterCount int) {
 	// cleanup the registry storage
 	defer registry.CleanupStorage()
 
+	wg := sync.WaitGroup{}
 	// 1. start masterCount api servers
 	for i := 0; i < masterCount; i++ {
 		// start master count api server
-		server := kubeapiservertesting.StartTestServerOrDie(t, instanceOptions, []string{
-			"--endpoint-reconciler-type", "master-count",
-			"--advertise-address", fmt.Sprintf("10.0.1.%v", i+1),
-			"--apiserver-count", fmt.Sprintf("%v", masterCount),
-		}, etcd)
-		masterCountServers = append(masterCountServers, server)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			server := kubeapiservertesting.StartTestServerOrDie(t, instanceOptions, []string{
+				"--endpoint-reconciler-type", "master-count",
+				"--advertise-address", fmt.Sprintf("10.0.1.%v", i+1),
+				"--apiserver-count", fmt.Sprintf("%v", masterCount),
+			}, etcd)
+			masterCountServers[i] = server
+		}(i)
 	}
+	wg.Wait()
 
 	// 2. verify master count servers have registered
 	if err := wait.PollImmediate(3*time.Second, 2*time.Minute, func() (bool, error) {
@@ -453,14 +460,23 @@ func testReconcilersMasterLease(t *testing.T, leaseCount int, masterCount int) {
 
 	// 3. start lease api servers
 	for i := 0; i < leaseCount; i++ {
-		options := []string{
-			"--endpoint-reconciler-type", "lease",
-			"--advertise-address", fmt.Sprintf("10.0.1.%v", i+10),
-		}
-		server := kubeapiservertesting.StartTestServerOrDie(t, instanceOptions, options, etcd)
-		defer server.TearDownFn()
-		leaseServers = append(leaseServers, server)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			options := []string{
+				"--endpoint-reconciler-type", "lease",
+				"--advertise-address", fmt.Sprintf("10.0.1.%v", i+10),
+			}
+			server := kubeapiservertesting.StartTestServerOrDie(t, instanceOptions, options, etcd)
+			leaseServers[i] = server
+		}(i)
 	}
+	wg.Wait()
+	defer func() {
+		for i := 0; i < leaseCount; i++ {
+			leaseServers[i].TearDownFn()
+		}
+	}()
 
 	time.Sleep(3 * time.Second)
 
@@ -488,13 +504,94 @@ func testReconcilersMasterLease(t *testing.T, leaseCount int, masterCount int) {
 }
 
 func TestReconcilerMasterLeaseCombined(t *testing.T) {
-	testReconcilersMasterLease(t, 1, 3)
+	testReconcilersMasterLease(t, 1, 2)
 }
 
 func TestReconcilerMasterLeaseMultiMoreMasters(t *testing.T) {
-	testReconcilersMasterLease(t, 3, 2)
+	testReconcilersMasterLease(t, 2, 1)
 }
 
 func TestReconcilerMasterLeaseMultiCombined(t *testing.T) {
-	testReconcilersMasterLease(t, 3, 3)
+	testReconcilersMasterLease(t, 2, 2)
+}
+
+func TestMultiMasterNodePortAllocation(t *testing.T) {
+	var kubeAPIServers []*kubeapiservertesting.TestServer
+	var clientAPIServers []*kubernetes.Clientset
+	etcd := framework.SharedEtcd()
+
+	instanceOptions := &kubeapiservertesting.TestServerInstanceOptions{
+		DisableStorageCleanup: true,
+	}
+
+	// cleanup the registry storage
+	defer registry.CleanupStorage()
+
+	// create 2 api servers and 2 clients
+	for i := 0; i < 2; i++ {
+		// start master count api server
+		t.Logf("starting api server: %d", i)
+		server := kubeapiservertesting.StartTestServerOrDie(t, instanceOptions, []string{
+			"--advertise-address", fmt.Sprintf("10.0.1.%v", i+1),
+		}, etcd)
+		kubeAPIServers = append(kubeAPIServers, server)
+
+		// verify kube API servers have registered and create a client
+		if err := wait.PollImmediate(3*time.Second, 2*time.Minute, func() (bool, error) {
+			client, err := kubernetes.NewForConfig(kubeAPIServers[i].ClientConfig)
+			if err != nil {
+				t.Logf("create client error: %v", err)
+				return false, nil
+			}
+			clientAPIServers = append(clientAPIServers, client)
+			endpoints, err := client.CoreV1().Endpoints("default").Get(context.TODO(), "kubernetes", metav1.GetOptions{})
+			if err != nil {
+				t.Logf("error fetching endpoints: %v", err)
+				return false, nil
+			}
+			return verifyEndpointsWithIPs(kubeAPIServers, getEndpointIPs(endpoints)), nil
+		}); err != nil {
+			t.Fatalf("did not find only lease endpoints: %v", err)
+		}
+	}
+
+	serviceObject := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{"foo": "bar"},
+			Name:   "test-node-port",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "nodeport-test",
+					Port:       443,
+					TargetPort: intstr.IntOrString{IntVal: 443},
+					NodePort:   32080,
+					Protocol:   "TCP",
+				},
+			},
+			Type:     "NodePort",
+			Selector: map[string]string{"foo": "bar"},
+		},
+	}
+
+	// create and delete the same nodePortservice using different APIservers
+	// to check that API servers are using the same port allocation bitmap
+	for i := 0; i < 2; i++ {
+		// Create the service using the first API server
+		_, err := clientAPIServers[0].CoreV1().Services(metav1.NamespaceDefault).Create(context.TODO(), serviceObject, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatalf("unable to create service: %v", err)
+		}
+		// Delete the service using the second API server
+		if err := clientAPIServers[1].CoreV1().Services(metav1.NamespaceDefault).Delete(context.TODO(), serviceObject.ObjectMeta.Name, metav1.DeleteOptions{}); err != nil {
+			t.Fatalf("got unexpected error: %v", err)
+		}
+	}
+
+	// shutdown the api servers
+	for _, server := range kubeAPIServers {
+		server.TearDownFn()
+	}
+
 }

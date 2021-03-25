@@ -35,9 +35,9 @@ import (
 	watchtools "k8s.io/client-go/tools/watch"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2eservice "k8s.io/kubernetes/test/e2e/framework/service"
+	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	"github.com/onsi/ginkgo"
-	"github.com/onsi/gomega"
 )
 
 const (
@@ -48,7 +48,7 @@ var _ = SIGDescribe("LimitRange", func() {
 	f := framework.NewDefaultFramework("limitrange")
 
 	/*
-		Release : v1.18
+		Release: v1.18
 		Testname: LimitRange, resources
 		Description: Creating a Limitrange and verifying the creation of Limitrange, updating the Limitrange and validating the Limitrange. Creating Pods with resources and validate the pod resources are applied to the Limitrange
 	*/
@@ -129,7 +129,7 @@ var _ = SIGDescribe("LimitRange", func() {
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Creating a Pod with no resource requirements")
-		pod := f.NewTestPod("pod-no-resources", v1.ResourceList{}, v1.ResourceList{})
+		pod := newTestPod("pod-no-resources", v1.ResourceList{}, v1.ResourceList{})
 		pod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
 
@@ -146,7 +146,7 @@ var _ = SIGDescribe("LimitRange", func() {
 		}
 
 		ginkgo.By("Creating a Pod with partial resource requirements")
-		pod = f.NewTestPod("pod-partial-resources", getResourceList("", "150Mi", "150Gi"), getResourceList("300m", "", ""))
+		pod = newTestPod("pod-partial-resources", getResourceList("", "150Mi", "150Gi"), getResourceList("300m", "", ""))
 		pod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
 
@@ -167,12 +167,12 @@ var _ = SIGDescribe("LimitRange", func() {
 		}
 
 		ginkgo.By("Failing to create a Pod with less than min resources")
-		pod = f.NewTestPod(podName, getResourceList("10m", "50Mi", "50Gi"), v1.ResourceList{})
+		pod = newTestPod(podName, getResourceList("10m", "50Mi", "50Gi"), v1.ResourceList{})
 		_, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectError(err)
 
 		ginkgo.By("Failing to create a Pod with more than max resources")
-		pod = f.NewTestPod(podName, getResourceList("600m", "600Mi", "600Gi"), v1.ResourceList{})
+		pod = newTestPod(podName, getResourceList("600m", "600Mi", "600Gi"), v1.ResourceList{})
 		_, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectError(err)
 
@@ -191,12 +191,12 @@ var _ = SIGDescribe("LimitRange", func() {
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Creating a Pod with less than former min resources")
-		pod = f.NewTestPod(podName, getResourceList("10m", "50Mi", "50Gi"), v1.ResourceList{})
+		pod = newTestPod(podName, getResourceList("10m", "50Mi", "50Gi"), v1.ResourceList{})
 		_, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Failing to create a Pod with more than max resources")
-		pod = f.NewTestPod(podName, getResourceList("600m", "600Mi", "600Gi"), v1.ResourceList{})
+		pod = newTestPod(podName, getResourceList("600m", "600Mi", "600Gi"), v1.ResourceList{})
 		_, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectError(err)
 
@@ -205,10 +205,8 @@ var _ = SIGDescribe("LimitRange", func() {
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Verifying the LimitRange was deleted")
-		gomega.Expect(wait.Poll(time.Second*5, e2eservice.RespondingTimeout, func() (bool, error) {
-			selector := labels.SelectorFromSet(labels.Set(map[string]string{"name": limitRange.Name}))
-			options := metav1.ListOptions{LabelSelector: selector.String()}
-			limitRanges, err := f.ClientSet.CoreV1().LimitRanges(f.Namespace.Name).List(context.TODO(), options)
+		err = wait.Poll(time.Second*5, e2eservice.RespondingTimeout, func() (bool, error) {
+			limitRanges, err := f.ClientSet.CoreV1().LimitRanges(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
 
 			if err != nil {
 				framework.Logf("Unable to retrieve LimitRanges: %v", err)
@@ -220,22 +218,17 @@ var _ = SIGDescribe("LimitRange", func() {
 				return true, nil
 			}
 
-			if len(limitRanges.Items) > 0 {
-				if limitRanges.Items[0].ObjectMeta.DeletionTimestamp == nil {
-					framework.Logf("deletion has not yet been observed")
-					return false, nil
-				}
-				return true, nil
+			for i := range limitRanges.Items {
+				lr := limitRanges.Items[i]
+				framework.Logf("LimitRange %v/%v has not yet been deleted", lr.Namespace, lr.Name)
 			}
 
 			return false, nil
-
-		}))
-
-		framework.ExpectNoError(err, "kubelet never observed the termination notice")
+		})
+		framework.ExpectNoError(err)
 
 		ginkgo.By("Creating a Pod with more than former max resources")
-		pod = f.NewTestPod(podName+"2", getResourceList("600m", "600Mi", "600Gi"), v1.ResourceList{})
+		pod = newTestPod(podName+"2", getResourceList("600m", "600Mi", "600Gi"), v1.ResourceList{})
 		_, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
 	})
@@ -302,6 +295,27 @@ func newLimitRange(name, value string, limitType v1.LimitType,
 					Default:              defaultLimit,
 					DefaultRequest:       defaultRequest,
 					MaxLimitRequestRatio: maxLimitRequestRatio,
+				},
+			},
+		},
+	}
+}
+
+// newTestPod returns a pod that has the specified requests and limits
+func newTestPod(name string, requests v1.ResourceList, limits v1.ResourceList) *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:  "pause",
+					Image: imageutils.GetPauseImageName(),
+					Resources: v1.ResourceRequirements{
+						Requests: requests,
+						Limits:   limits,
+					},
 				},
 			},
 		},

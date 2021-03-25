@@ -233,9 +233,6 @@ func TestDeleteAddressWithWrongTier(t *testing.T) {
 	s, err := fakeGCECloud(DefaultTestClusterValues())
 	require.NoError(t, err)
 
-	// Enable the cloud.NetworkTiers feature
-	s.AlphaFeatureGate.features[AlphaFeatureNetworkTiers] = true
-
 	for desc, tc := range map[string]struct {
 		addrName     string
 		netTier      cloud.NetworkTier
@@ -375,6 +372,24 @@ func TestUpdateExternalLoadBalancer(t *testing.T) {
 		[]string{fmt.Sprintf("/zones/%s/instances/%s", vals.ZoneName, nodeName)},
 		pool.Instances,
 	)
+
+	anotherNewNodeName := "test-node-3"
+	newNodes, err = createAndInsertNodes(gce, []string{nodeName, newNodeName, anotherNewNodeName}, vals.ZoneName)
+	assert.NoError(t, err)
+
+	// delete one of the existing nodes, but include it in the list
+	err = gce.DeleteInstance(gce.ProjectID(), vals.ZoneName, nodeName)
+	require.NoError(t, err)
+
+	// The update should ignore the reference to non-existent node "test-node-1", but update target pool with rest of the valid nodes.
+	err = gce.updateExternalLoadBalancer(vals.ClusterName, svc, newNodes)
+	assert.NoError(t, err)
+
+	pool, err = gce.GetTargetPool(lbName, gce.region)
+	require.NoError(t, err)
+
+	namePrefix := fmt.Sprintf("/zones/%s/instances/", vals.ZoneName)
+	assert.ElementsMatch(t, pool.Instances, []string{namePrefix + newNodeName, namePrefix + anotherNewNodeName})
 }
 
 func TestEnsureExternalLoadBalancerDeleted(t *testing.T) {
@@ -401,8 +416,6 @@ func TestLoadBalancerWrongTierResourceDeletion(t *testing.T) {
 	gce, err := fakeGCECloud(vals)
 	require.NoError(t, err)
 
-	// Enable the cloud.NetworkTiers feature
-	gce.AlphaFeatureGate.features[AlphaFeatureNetworkTiers] = true
 	svc := fakeLoadbalancerService("")
 	svc.Annotations = map[string]string{NetworkTierAnnotationKey: "Premium"}
 
@@ -460,8 +473,6 @@ func TestEnsureExternalLoadBalancerFailsIfInvalidNetworkTier(t *testing.T) {
 	nodes, err := createAndInsertNodes(gce, nodeNames, vals.ZoneName)
 	require.NoError(t, err)
 
-	// Enable the cloud.NetworkTiers feature
-	gce.AlphaFeatureGate.features[AlphaFeatureNetworkTiers] = true
 	svc := fakeLoadbalancerService("")
 	svc.Annotations = map[string]string{NetworkTierAnnotationKey: wrongTier}
 
@@ -834,7 +845,6 @@ func TestDeleteWrongNetworkTieredResourcesSucceedsWhenNotFound(t *testing.T) {
 	gce, err := fakeGCECloud(DefaultTestClusterValues())
 	require.NoError(t, err)
 
-	gce.AlphaFeatureGate.features[AlphaFeatureNetworkTiers] = true
 	assert.Nil(t, gce.deleteWrongNetworkTieredResources("Wrong_LB_Name", "", cloud.NetworkTier("")))
 }
 

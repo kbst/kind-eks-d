@@ -33,7 +33,7 @@ export GOBIN="${KUBE_OUTPUT_BINPATH}"
 PATH="${GOBIN}:${PATH}"
 
 # Install tools we need, but only from vendor/...
-go install k8s.io/kubernetes/vendor/github.com/go-bindata/go-bindata/...
+go install k8s.io/kubernetes/vendor/github.com/go-bindata/go-bindata/go-bindata
 
 # run the generation from the root directory for stable output
 pushd "${KUBE_ROOT}" >/dev/null
@@ -44,6 +44,7 @@ BINDATA_OUTPUT="test/e2e/generated/bindata.go"
 # test/e2e/generated/BUILD and/or build/bindata.bzl.
 go-bindata -nometadata -o "${BINDATA_OUTPUT}.tmp" -pkg generated \
 	-ignore .jpg -ignore .png -ignore .md -ignore 'BUILD(\.bazel)?' \
+	"test/conformance/testdata/..." \
 	"test/e2e/testing-manifests/..." \
 	"test/e2e_node/testing-manifests/..." \
 	"test/images/..." \

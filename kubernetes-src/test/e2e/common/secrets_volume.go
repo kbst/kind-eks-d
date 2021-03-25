@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"path"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -37,7 +37,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	f := framework.NewDefaultFramework("secrets")
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Secrets Volume, default
 		Description: Create a secret. Create a Pod with secret volume source configured into the container. Pod MUST be able to read the secret from the mounted volume from the container runtime and the file mode of the secret MUST be -rw-r--r-- by default.
 	*/
@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	})
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Secrets Volume, volume mode 0400
 		Description: Create a secret. Create a Pod with secret volume source configured into the container with file mode set to 0x400. Pod MUST be able to read the secret from the mounted volume from the container runtime and the file mode of the secret MUST be -r-------- by default.
 		This test is marked LinuxOnly since Windows does not support setting specific file permissions.
@@ -57,7 +57,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	})
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Secrets Volume, volume mode 0440, fsGroup 1001 and uid 1000
 		Description: Create a secret. Create a Pod with secret volume source configured into the container with file mode set to 0x440 as a non-root user with uid 1000 and fsGroup id 1001. Pod MUST be able to read the secret from the mounted volume from the container runtime and the file mode of the secret MUST be -r--r-----by default.
 		This test is marked LinuxOnly since Windows does not support setting specific file permissions, or running as UID / GID.
@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	})
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Secrets Volume, mapping
 		Description: Create a secret. Create a Pod with secret volume source configured into the container with a custom path. Pod MUST be able to read the secret from the mounted volume from the specified custom path. The file mode of the secret MUST be -rw-r--r-- by default.
 	*/
@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	})
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Secrets Volume, mapping, volume mode 0400
 		Description: Create a secret. Create a Pod with secret volume source configured into the container with a custom path and file mode set to 0x400. Pod MUST be able to read the secret from the mounted volume from the specified custom path. The file mode of the secret MUST be -r--r--r--.
 		This test is marked LinuxOnly since Windows does not support setting specific file permissions.
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	})
 
 	/*
-		Release : v1.12
+		Release: v1.12
 		Testname: Secrets Volume, volume mode default, secret with same name in different namespace
 		Description: Create a secret with same name in two namespaces. Create a Pod with secret volume source configured into the container. Pod MUST be able to read the secrets from the mounted volume from the container runtime and only secrets which are associated with namespace where pod is created. The file mode of the secret MUST be -rw-r--r-- by default.
 	*/
@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	})
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Secrets Volume, mapping multiple volume paths
 		Description: Create a secret. Create a Pod with two secret volume sources configured into the container in to two different custom paths. Pod MUST be able to read the secret from the both the mounted volumes from the two specified custom paths.
 	*/
@@ -164,8 +164,9 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 				Containers: []v1.Container{
 					{
 						Name:  "secret-volume-test",
-						Image: imageutils.GetE2EImage(imageutils.Mounttest),
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
 						Args: []string{
+							"mounttest",
 							"--file_content=/etc/secret-volume/data-1",
 							"--file_mode=/etc/secret-volume/data-1"},
 						VolumeMounts: []v1.VolumeMount{
@@ -186,7 +187,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 			},
 		}
 
-		fileModeRegexp := framework.GetFileModeRegex("/etc/secret-volume/data-1", nil)
+		fileModeRegexp := getFileModeRegex("/etc/secret-volume/data-1", nil)
 		f.TestContainerOutputRegexp("consume secrets", pod, 0, []string{
 			"content of file \"/etc/secret-volume/data-1\": value-1",
 			fileModeRegexp,
@@ -194,12 +195,12 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 	})
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Secrets Volume, create, update and delete
 		Description: Create a Pod with three containers with secrets volume sources namely a create, update and delete container. Create Container when started MUST not have secret, update and delete containers MUST be created with a secret value. Create a secret in the create container, the Pod MUST be able to read the secret from the create container. Update the secret in the update container, Pod MUST be able to read the updated secret value. Delete the secret in the delete container. Pod MUST fail to read the secret from the delete container.
 	*/
 	framework.ConformanceIt("optional updates should be reflected in volume [NodeConformance]", func() {
-		podLogTimeout := framework.GetPodSecretUpdateTimeout(f.ClientSet)
+		podLogTimeout := e2epod.GetPodSecretUpdateTimeout(f.ClientSet)
 		containerTimeoutArg := fmt.Sprintf("--retry_time=%v", int(podLogTimeout.Seconds()))
 		trueVal := true
 		volumeMountPath := "/etc/secret-volumes"
@@ -290,9 +291,9 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 				},
 				Containers: []v1.Container{
 					{
-						Name:    deleteContainerName,
-						Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-						Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/delete/data-1"},
+						Name:  deleteContainerName,
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/delete/data-1"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      deleteVolumeName,
@@ -302,9 +303,9 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 						},
 					},
 					{
-						Name:    updateContainerName,
-						Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-						Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/update/data-3"},
+						Name:  updateContainerName,
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/update/data-3"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      updateVolumeName,
@@ -314,9 +315,9 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 						},
 					},
 					{
-						Name:    createContainerName,
-						Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-						Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/create/data-1"},
+						Name:  createContainerName,
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/create/data-1"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      createVolumeName,
@@ -372,7 +373,7 @@ var _ = ginkgo.Describe("[sig-storage] Secrets", func() {
 
 	// It should be forbidden to change data for secrets marked as immutable, but
 	// allowed to modify its metadata independently of its state.
-	ginkgo.It("should be immutable if `immutable` field is set [Feature:ImmutableEphemeralVolume]", func() {
+	ginkgo.It("should be immutable if `immutable` field is set", func() {
 		name := "immutable"
 		secret := secretForTest(f.Namespace.Name, name)
 
@@ -484,8 +485,9 @@ func doSecretE2EWithoutMapping(f *framework.Framework, defaultMode *int32, secre
 			Containers: []v1.Container{
 				{
 					Name:  "secret-volume-test",
-					Image: imageutils.GetE2EImage(imageutils.Mounttest),
+					Image: imageutils.GetE2EImage(imageutils.Agnhost),
 					Args: []string{
+						"mounttest",
 						"--file_content=/etc/secret-volume/data-1",
 						"--file_mode=/etc/secret-volume/data-1"},
 					VolumeMounts: []v1.VolumeMount{
@@ -511,7 +513,7 @@ func doSecretE2EWithoutMapping(f *framework.Framework, defaultMode *int32, secre
 		}
 	}
 
-	fileModeRegexp := framework.GetFileModeRegex("/etc/secret-volume/data-1", defaultMode)
+	fileModeRegexp := getFileModeRegex("/etc/secret-volume/data-1", defaultMode)
 	expectedOutput := []string{
 		"content of file \"/etc/secret-volume/data-1\": value-1",
 		fileModeRegexp,
@@ -558,8 +560,9 @@ func doSecretE2EWithMapping(f *framework.Framework, mode *int32) {
 			Containers: []v1.Container{
 				{
 					Name:  "secret-volume-test",
-					Image: imageutils.GetE2EImage(imageutils.Mounttest),
+					Image: imageutils.GetE2EImage(imageutils.Agnhost),
 					Args: []string{
+						"mounttest",
 						"--file_content=/etc/secret-volume/new-path-data-1",
 						"--file_mode=/etc/secret-volume/new-path-data-1"},
 					VolumeMounts: []v1.VolumeMount{
@@ -578,7 +581,7 @@ func doSecretE2EWithMapping(f *framework.Framework, mode *int32) {
 		pod.Spec.Volumes[0].VolumeSource.Secret.Items[0].Mode = mode
 	}
 
-	fileModeRegexp := framework.GetFileModeRegex("/etc/secret-volume/new-path-data-1", mode)
+	fileModeRegexp := getFileModeRegex("/etc/secret-volume/new-path-data-1", mode)
 	expectedOutput := []string{
 		"content of file \"/etc/secret-volume/new-path-data-1\": value-1",
 		fileModeRegexp,
@@ -588,7 +591,7 @@ func doSecretE2EWithMapping(f *framework.Framework, mode *int32) {
 }
 
 func createNonOptionalSecretPod(f *framework.Framework, volumeMountPath, podName string) error {
-	podLogTimeout := framework.GetPodSecretUpdateTimeout(f.ClientSet)
+	podLogTimeout := e2epod.GetPodSecretUpdateTimeout(f.ClientSet)
 	containerTimeoutArg := fmt.Sprintf("--retry_time=%v", int(podLogTimeout.Seconds()))
 	falseValue := false
 
@@ -615,9 +618,9 @@ func createNonOptionalSecretPod(f *framework.Framework, volumeMountPath, podName
 			},
 			Containers: []v1.Container{
 				{
-					Name:    createContainerName,
-					Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-					Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/create/data-1"},
+					Name:  createContainerName,
+					Image: imageutils.GetE2EImage(imageutils.Agnhost),
+					Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/create/data-1"},
 					VolumeMounts: []v1.VolumeMount{
 						{
 							Name:      createVolumeName,
@@ -632,11 +635,11 @@ func createNonOptionalSecretPod(f *framework.Framework, volumeMountPath, podName
 	}
 	ginkgo.By("Creating the pod")
 	pod = f.PodClient().Create(pod)
-	return f.WaitForPodRunning(pod.Name)
+	return e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name)
 }
 
 func createNonOptionalSecretPodWithSecret(f *framework.Framework, volumeMountPath, podName string) error {
-	podLogTimeout := framework.GetPodSecretUpdateTimeout(f.ClientSet)
+	podLogTimeout := e2epod.GetPodSecretUpdateTimeout(f.ClientSet)
 	containerTimeoutArg := fmt.Sprintf("--retry_time=%v", int(podLogTimeout.Seconds()))
 	falseValue := false
 
@@ -676,9 +679,9 @@ func createNonOptionalSecretPodWithSecret(f *framework.Framework, volumeMountPat
 			},
 			Containers: []v1.Container{
 				{
-					Name:    createContainerName,
-					Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-					Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/create/data-1"},
+					Name:  createContainerName,
+					Image: imageutils.GetE2EImage(imageutils.Agnhost),
+					Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/secret-volumes/create/data-1"},
 					VolumeMounts: []v1.VolumeMount{
 						{
 							Name:      createVolumeName,
@@ -693,5 +696,5 @@ func createNonOptionalSecretPodWithSecret(f *framework.Framework, volumeMountPat
 	}
 	ginkgo.By("Creating the pod")
 	pod = f.PodClient().Create(pod)
-	return f.WaitForPodRunning(pod.Name)
+	return e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name)
 }

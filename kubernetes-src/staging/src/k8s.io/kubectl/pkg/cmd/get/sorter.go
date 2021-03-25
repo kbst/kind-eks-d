@@ -22,7 +22,7 @@ import (
 	"reflect"
 	"sort"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -206,6 +206,13 @@ func isLess(i, j reflect.Value) (bool, error) {
 		return true, nil
 
 	case reflect.Interface:
+		if i.IsNil() && j.IsNil() {
+			return false, nil
+		} else if i.IsNil() {
+			return true, nil
+		} else if j.IsNil() {
+			return false, nil
+		}
 		switch itype := i.Interface().(type) {
 		case uint8:
 			if jtype, ok := j.Interface().(uint8); ok {

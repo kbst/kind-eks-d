@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -39,8 +39,6 @@ import (
 )
 
 func extinguish(f *framework.Framework, totalNS int, maxAllowedAfterDel int, maxSeconds int) {
-	var err error
-
 	ginkgo.By("Creating testing namespaces")
 	wg := &sync.WaitGroup{}
 	wg.Add(totalNS)
@@ -49,7 +47,7 @@ func extinguish(f *framework.Framework, totalNS int, maxAllowedAfterDel int, max
 			defer wg.Done()
 			defer ginkgo.GinkgoRecover()
 			ns := fmt.Sprintf("nslifetest-%v", n)
-			_, err = f.CreateNamespace(ns, nil)
+			_, err := f.CreateNamespace(ns, nil)
 			framework.ExpectNoError(err, "failed to create namespace: %s", ns)
 		}(n)
 	}
@@ -230,6 +228,7 @@ var _ = SIGDescribe("Namespaces [Serial]", func() {
 	f := framework.NewDefaultFramework("namespaces")
 
 	/*
+		Release: v1.11
 		Testname: namespace-deletion-removes-pods
 		Description: Ensure that if a namespace is deleted then all pods are removed from that namespace.
 	*/
@@ -237,6 +236,7 @@ var _ = SIGDescribe("Namespaces [Serial]", func() {
 		func() { ensurePodsAreRemovedWhenNamespaceIsDeleted(f) })
 
 	/*
+		Release: v1.11
 		Testname: namespace-deletion-removes-services
 		Description: Ensure that if a namespace is deleted then all services are removed from that namespace.
 	*/
@@ -251,7 +251,7 @@ var _ = SIGDescribe("Namespaces [Serial]", func() {
 		func() { extinguish(f, 100, 0, 150) })
 
 	/*
-	   Release : v1.18
+	   Release: v1.18
 	   Testname: Namespace patching
 	   Description: A Namespace is created.
 	   The Namespace is patched.

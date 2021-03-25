@@ -35,7 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	clientsetscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	"k8s.io/kubernetes/cmd/kubeadm/app/features"
@@ -50,7 +50,6 @@ const (
 	KubeDNSServiceAccountName  = "kube-dns"
 	kubeDNSStubDomain          = "stubDomains"
 	kubeDNSUpstreamNameservers = "upstreamNameservers"
-	kubeDNSFederation          = "federations"
 	unableToDecodeCoreDNS      = "unable to decode CoreDNS"
 	coreDNSReplicas            = 2
 	kubeDNSReplicas            = 1
@@ -225,16 +224,11 @@ func coreDNSAddon(cfg *kubeadmapi.ClusterConfiguration, client clientset.Interfa
 		return err
 	}
 	coreDNSDomain := cfg.Networking.DNSDomain
-	federations, err := translateFederationsofKubeDNSToCoreDNS(kubeDNSFederation, coreDNSDomain, kubeDNSConfigMap)
-	if err != nil {
-		return err
-	}
 
 	// Get the config file for CoreDNS
-	coreDNSConfigMapBytes, err := kubeadmutil.ParseTemplate(CoreDNSConfigMap, struct{ DNSDomain, UpstreamNameserver, Federation, StubDomain string }{
+	coreDNSConfigMapBytes, err := kubeadmutil.ParseTemplate(CoreDNSConfigMap, struct{ DNSDomain, UpstreamNameserver, StubDomain string }{
 		DNSDomain:          coreDNSDomain,
 		UpstreamNameserver: upstreamNameserver,
-		Federation:         federations,
 		StubDomain:         stubDomain,
 	})
 	if err != nil {
@@ -273,19 +267,33 @@ func createCoreDNSAddon(deploymentBytes, serviceBytes, configBytes []byte, clien
 		return errors.Wrap(err, "unable to fetch CoreDNS current installed version and ConfigMap.")
 	}
 
-	var hasCoreDNSMigrationFailed bool
-	if IsCoreDNSConfigMapMigrationRequired(corefile) {
+	corefileMigrationRequired, err := isCoreDNSConfigMapMigrationRequired(corefile, currentInstalledCoreDNSVersion)
+	if err != nil {
+		return err
+	}
+
+	// Assume that migration is always possible, rely on migrateCoreDNSCorefile() to fail if not.
+	canMigrateCorefile := true
+
+	if corefile == "" || migration.Default("", corefile) {
+		// If the Corefile is empty or default, the latest default Corefile will be applied
+		if err := apiclient.CreateOrUpdateConfigMap(client, coreDNSConfigMap); err != nil {
+			return err
+		}
+	} else if corefileMigrationRequired {
+		// If migration is required, try and migrate the Corefile
 		if err := migrateCoreDNSCorefile(client, coreDNSConfigMap, corefile, currentInstalledCoreDNSVersion); err != nil {
 			// Errors in Corefile Migration is verified during preflight checks. This part will be executed when a user has chosen
 			// to ignore preflight check errors.
-			hasCoreDNSMigrationFailed = true
+			canMigrateCorefile = false
 			klog.Warningf("the CoreDNS Configuration was not migrated: %v. The existing CoreDNS Corefile configuration has been retained.", err)
 			if err := apiclient.CreateOrRetainConfigMap(client, coreDNSConfigMap, kubeadmconstants.CoreDNSConfigMap); err != nil {
 				return err
 			}
 		}
 	} else {
-		if err := apiclient.CreateOrUpdateConfigMap(client, coreDNSConfigMap); err != nil {
+		// If the Corefile is modified and doesn't require any migration, it'll be retained for the benefit of the user
+		if err := apiclient.CreateOrRetainConfigMap(client, coreDNSConfigMap, kubeadmconstants.CoreDNSConfigMap); err != nil {
 			return err
 		}
 	}
@@ -326,7 +334,7 @@ func createCoreDNSAddon(deploymentBytes, serviceBytes, configBytes []byte, clien
 	}
 
 	// Create the deployment for CoreDNS or retain it in case the CoreDNS migration has failed during upgrade
-	if hasCoreDNSMigrationFailed {
+	if !canMigrateCorefile {
 		if err := apiclient.CreateOrRetainDeployment(client, coreDNSDeployment, kubeadmconstants.CoreDNSDeploymentName); err != nil {
 			return err
 		}
@@ -362,40 +370,37 @@ func createDNSService(dnsService *v1.Service, serviceBytes []byte, client client
 	return nil
 }
 
-// IsCoreDNSConfigMapMigrationRequired checks if a migration of the CoreDNS ConfigMap is required.
-func IsCoreDNSConfigMapMigrationRequired(corefile string) bool {
-	if corefile == "" || migration.Default("", corefile) {
-		return false
+// isCoreDNSConfigMapMigrationRequired checks if a migration of the CoreDNS ConfigMap is required.
+func isCoreDNSConfigMapMigrationRequired(corefile, currentInstalledCoreDNSVersion string) (bool, error) {
+	var isMigrationRequired bool
+
+	// Current installed version is expected to be empty for init
+	if currentInstalledCoreDNSVersion == "" {
+		return isMigrationRequired, nil
 	}
-	return true
+	deprecated, err := migration.Deprecated(currentInstalledCoreDNSVersion, kubeadmconstants.CoreDNSVersion, corefile)
+	if err != nil {
+		return isMigrationRequired, errors.Wrap(err, "unable to get list of changes to the configuration.")
+	}
+
+	// Check if there are any plugins/options which needs to be removed or is a new default
+	for _, dep := range deprecated {
+		if dep.Severity == "removed" || dep.Severity == "newdefault" {
+			isMigrationRequired = true
+		}
+	}
+
+	return isMigrationRequired, nil
 }
 
 func migrateCoreDNSCorefile(client clientset.Interface, cm *v1.ConfigMap, corefile, currentInstalledCoreDNSVersion string) error {
-	// Take a copy of the Corefile data as `Corefile-backup` and update the ConfigMap
-	// Also point the CoreDNS deployment to the `Corefile-backup` data.
-
-	if _, err := client.CoreV1().ConfigMaps(cm.ObjectMeta.Namespace).Update(context.TODO(), &v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      kubeadmconstants.CoreDNSConfigMap,
-			Namespace: metav1.NamespaceSystem,
-		},
-		Data: map[string]string{
-			"Corefile":        corefile,
-			"Corefile-backup": corefile,
-		},
-	}, metav1.UpdateOptions{}); err != nil {
-		return errors.Wrap(err, "unable to update the CoreDNS ConfigMap with backup Corefile")
-	}
-	if err := patchCoreDNSDeployment(client, "Corefile-backup"); err != nil {
-		return err
-	}
-
 	// Since the current configuration present is not the default version, try and migrate it.
 	updatedCorefile, err := migration.Migrate(currentInstalledCoreDNSVersion, kubeadmconstants.CoreDNSVersion, corefile, false)
 	if err != nil {
 		return errors.Wrap(err, "unable to migrate CoreDNS ConfigMap")
 	}
 
+	// Take a copy of the existing Corefile data as `Corefile-backup` and update the ConfigMap
 	if _, err := client.CoreV1().ConfigMaps(cm.ObjectMeta.Namespace).Update(context.TODO(), &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kubeadmconstants.CoreDNSConfigMap,
@@ -408,6 +413,12 @@ func migrateCoreDNSCorefile(client clientset.Interface, cm *v1.ConfigMap, corefi
 	}, metav1.UpdateOptions{}); err != nil {
 		return errors.Wrap(err, "unable to update the CoreDNS ConfigMap")
 	}
+
+	// Point the CoreDNS deployment to the `Corefile-backup` data.
+	if err := setCorefile(client, "Corefile-backup"); err != nil {
+		return err
+	}
+
 	fmt.Println("[addons] Migrating CoreDNS Corefile")
 	changes, err := migration.Deprecated(currentInstalledCoreDNSVersion, kubeadmconstants.CoreDNSVersion, corefile)
 	if err != nil {
@@ -445,12 +456,12 @@ func GetCoreDNSInfo(client clientset.Interface) (*v1.ConfigMap, string, string, 
 	return coreDNSConfigMap, corefile, currentCoreDNSversion, nil
 }
 
-func patchCoreDNSDeployment(client clientset.Interface, coreDNSCorefileName string) error {
+func setCorefile(client clientset.Interface, coreDNSCorefileName string) error {
 	dnsDeployment, err := client.AppsV1().Deployments(metav1.NamespaceSystem).Get(context.TODO(), kubeadmconstants.CoreDNSDeploymentName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
-	patch := fmt.Sprintf(`{"spec":{"template":{"spec":{"volumes":[{"name": "config-volume", "configMap":{"name": "coredns", "items":[{"key": "%s", "path": "%s"}]}}]}}}}`, coreDNSCorefileName, coreDNSCorefileName)
+	patch := fmt.Sprintf(`{"spec":{"template":{"spec":{"volumes":[{"name": "config-volume", "configMap":{"name": "coredns", "items":[{"key": "%s", "path": "Corefile"}]}}]}}}}`, coreDNSCorefileName)
 
 	if _, err := client.AppsV1().Deployments(dnsDeployment.ObjectMeta.Namespace).Patch(context.TODO(), dnsDeployment.Name, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil {
 		return errors.Wrap(err, "unable to patch the CoreDNS deployment")
@@ -531,47 +542,6 @@ func translateUpstreamNameServerOfKubeDNSToUpstreamForwardCoreDNS(dataField stri
 		return coreDNSProxyStanzaList, nil
 	}
 	return "/etc/resolv.conf", nil
-}
-
-// translateFederationsofKubeDNSToCoreDNS translates Federations Data in kube-dns ConfigMap
-// to Federation for CoreDNS Corefile.
-func translateFederationsofKubeDNSToCoreDNS(dataField, coreDNSDomain string, kubeDNSConfigMap *v1.ConfigMap) (string, error) {
-	if kubeDNSConfigMap == nil {
-		return "", nil
-	}
-
-	if federation, ok := kubeDNSConfigMap.Data[dataField]; ok {
-		var (
-			federationStanza []interface{}
-			body             [][]string
-		)
-		federationData := make(map[string]string)
-
-		err := json.Unmarshal([]byte(federation), &federationData)
-		if err != nil {
-			return "", errors.Wrap(err, "failed to parse JSON from kube-dns ConfigMap")
-		}
-		fStanza := map[string]interface{}{}
-
-		for name, domain := range federationData {
-			body = append(body, []string{name, domain})
-		}
-		federationStanza = append(federationStanza, fStanza)
-		fStanza["keys"] = []string{"federation " + coreDNSDomain}
-		fStanza["body"] = body
-		stanzasBytes, err := json.Marshal(federationStanza)
-		if err != nil {
-			return "", err
-		}
-
-		corefileStanza, err := caddyfile.FromJSON(stanzasBytes)
-		if err != nil {
-			return "", err
-		}
-
-		return prepCorefileFormat(string(corefileStanza), 8), nil
-	}
-	return "", nil
 }
 
 // prepCorefileFormat indents the output of the Corefile caddytext and replaces tabs with spaces

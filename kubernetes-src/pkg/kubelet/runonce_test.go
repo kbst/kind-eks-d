@@ -65,7 +65,7 @@ func TestRunOnce(t *testing.T) {
 	fakeSecretManager := secret.NewFakeManager()
 	fakeConfigMapManager := configmap.NewFakeManager()
 	podManager := kubepod.NewBasicPodManager(
-		podtest.NewFakeMirrorClient(), fakeSecretManager, fakeConfigMapManager, podtest.NewMockCheckpointManager())
+		podtest.NewFakeMirrorClient(), fakeSecretManager, fakeConfigMapManager)
 	fakeRuntime := &containertest.FakeRuntime{}
 	basePath, err := utiltesting.MkTmpdir("kubelet")
 	if err != nil {
@@ -158,7 +158,7 @@ func TestRunOnce(t *testing.T) {
 	// because runonce is never used in kubernetes now, we should deprioritize the cleanup work.
 	// TODO(random-liu) Fix the test, make it meaningful.
 	fakeRuntime.PodStatus = kubecontainer.PodStatus{
-		ContainerStatuses: []*kubecontainer.ContainerStatus{
+		ContainerStatuses: []*kubecontainer.Status{
 			{
 				Name:  "bar",
 				State: kubecontainer.ContainerStateRunning,

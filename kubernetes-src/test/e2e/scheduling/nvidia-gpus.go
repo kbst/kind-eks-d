@@ -31,9 +31,11 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2egpu "k8s.io/kubernetes/test/e2e/framework/gpu"
 	e2ejob "k8s.io/kubernetes/test/e2e/framework/job"
+	e2emanifest "k8s.io/kubernetes/test/e2e/framework/manifest"
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	"k8s.io/kubernetes/test/e2e/framework/providers/gce"
+	e2eresource "k8s.io/kubernetes/test/e2e/framework/resource"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	e2etestfiles "k8s.io/kubernetes/test/e2e/framework/testfiles"
 	imageutils "k8s.io/kubernetes/test/utils/image"
@@ -133,14 +135,14 @@ func SetupNVIDIAGPUNode(f *framework.Framework, setupResourceGatherer bool) *fra
 	if dsYamlURLFromEnv != "" {
 		// Using DaemonSet from remote URL
 		framework.Logf("Using remote nvidia-driver-installer daemonset manifest from %v", dsYamlURLFromEnv)
-		ds, err = framework.DsFromManifest(dsYamlURLFromEnv)
+		ds, err = e2emanifest.DaemonSetFromURL(dsYamlURLFromEnv)
 		framework.ExpectNoError(err, "failed get remote")
 	} else {
 		// Using default local DaemonSet
 		framework.Logf("Using default local nvidia-driver-installer daemonset manifest.")
 		data, err := e2etestfiles.Read("test/e2e/testing-manifests/scheduling/nvidia-driver-installer.yaml")
 		framework.ExpectNoError(err, "failed to read local manifest for nvidia-driver-installer daemonset")
-		ds, err = framework.DsFromData(data)
+		ds, err = e2emanifest.DaemonSetFromData(data)
 		framework.ExpectNoError(err, "failed to parse local manifest for nvidia-driver-installer daemonset")
 	}
 	gpuResourceName = e2egpu.NVIDIAGPUResourceName
@@ -149,10 +151,10 @@ func SetupNVIDIAGPUNode(f *framework.Framework, setupResourceGatherer bool) *fra
 	framework.ExpectNoError(err, "failed to create nvidia-driver-installer daemonset")
 	framework.Logf("Successfully created daemonset to install Nvidia drivers.")
 
-	pods, err := e2epod.WaitForControlledPods(f.ClientSet, ds.Namespace, ds.Name, extensionsinternal.Kind("DaemonSet"))
+	pods, err := e2eresource.WaitForControlledPods(f.ClientSet, ds.Namespace, ds.Name, extensionsinternal.Kind("DaemonSet"))
 	framework.ExpectNoError(err, "failed to get pods controlled by the nvidia-driver-installer daemonset")
 
-	devicepluginPods, err := e2epod.WaitForControlledPods(f.ClientSet, "kube-system", "nvidia-gpu-device-plugin", extensionsinternal.Kind("DaemonSet"))
+	devicepluginPods, err := e2eresource.WaitForControlledPods(f.ClientSet, "kube-system", "nvidia-gpu-device-plugin", extensionsinternal.Kind("DaemonSet"))
 	if err == nil {
 		framework.Logf("Adding deviceplugin addon pod.")
 		pods.Items = append(pods.Items, devicepluginPods.Items...)
@@ -293,11 +295,11 @@ func VerifyJobNCompletions(f *framework.Framework, completions int32) {
 	framework.Logf("Got the following pods for job cuda-add: %v", createdPodNames)
 
 	successes := int32(0)
+	regex := regexp.MustCompile("PASSED")
 	for _, podName := range createdPodNames {
 		f.PodClient().WaitForFinish(podName, 5*time.Minute)
 		logs, err := e2epod.GetPodLogs(f.ClientSet, ns, podName, "vector-addition")
 		framework.ExpectNoError(err, "Should be able to get logs for pod %v", podName)
-		regex := regexp.MustCompile("PASSED")
 		if regex.MatchString(logs) {
 			successes++
 		}

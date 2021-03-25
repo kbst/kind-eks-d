@@ -125,12 +125,7 @@ func nodeConfigSourceInUse(node *api.Node) bool {
 // Validate validates a new node.
 func (nodeStrategy) Validate(ctx context.Context, obj runtime.Object) field.ErrorList {
 	node := obj.(*api.Node)
-	opts := validation.NodeValidationOptions{
-		// This ensures new nodes have no more than one hugepages resource
-		// TODO: set to false in 1.19; 1.18 servers tolerate multiple hugepages resources on update
-		ValidateSingleHugePageResource: true,
-	}
-	return validation.ValidateNode(node, opts)
+	return validation.ValidateNode(node)
 }
 
 // Canonicalize normalizes the object after validation.
@@ -139,14 +134,8 @@ func (nodeStrategy) Canonicalize(obj runtime.Object) {
 
 // ValidateUpdate is the default update validation for an end user.
 func (nodeStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object) field.ErrorList {
-	oldPassesSingleHugepagesValidation := len(validation.ValidateNodeSingleHugePageResources(old.(*api.Node))) == 0
-	opts := validation.NodeValidationOptions{
-		// This ensures the new node has no more than one hugepages resource, if the old node did as well.
-		// TODO: set to false in 1.19; 1.18 servers tolerate relaxed validation on update
-		ValidateSingleHugePageResource: oldPassesSingleHugepagesValidation,
-	}
-	errorList := validation.ValidateNode(obj.(*api.Node), opts)
-	return append(errorList, validation.ValidateNodeUpdate(obj.(*api.Node), old.(*api.Node), opts)...)
+	errorList := validation.ValidateNode(obj.(*api.Node))
+	return append(errorList, validation.ValidateNodeUpdate(obj.(*api.Node), old.(*api.Node))...)
 }
 
 func (nodeStrategy) AllowUnconditionalUpdate() bool {
@@ -197,13 +186,7 @@ func nodeStatusConfigInUse(node *api.Node) bool {
 }
 
 func (nodeStatusStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object) field.ErrorList {
-	oldPassesSingleHugepagesValidation := len(validation.ValidateNodeSingleHugePageResources(old.(*api.Node))) == 0
-	opts := validation.NodeValidationOptions{
-		// This ensures the new node has no more than one hugepages resource, if the old node did as well.
-		// TODO: set to false in 1.19; 1.18 servers tolerate relaxed validation on update
-		ValidateSingleHugePageResource: oldPassesSingleHugepagesValidation,
-	}
-	return validation.ValidateNodeUpdate(obj.(*api.Node), old.(*api.Node), opts)
+	return validation.ValidateNodeUpdate(obj.(*api.Node), old.(*api.Node))
 }
 
 // Canonicalize normalizes the object after validation.
@@ -262,7 +245,7 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
 
 	// REVIEW NOTE:
 	// I didn't see a better way to plumb this down here. Feature gates are globals too, but I'd be happy to get the CIDRs here another way
-	included, err := kubeapiserveroptions.ProxyCIDRWhitelist.ContainsHost(
+	included, err := kubeapiserveroptions.ProxyCIDRAllowlist.ContainsHost(
 		ctx,
 		info.Hostname,
 	)

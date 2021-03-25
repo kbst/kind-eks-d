@@ -26,6 +26,8 @@ import (
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
 	cliflag "k8s.io/component-base/cli/flag"
+	"k8s.io/component-base/logs"
+	"k8s.io/component-base/metrics"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	_ "k8s.io/kubernetes/pkg/features" // add the kubernetes feature gates
 	kubeoptions "k8s.io/kubernetes/pkg/kubeapiserver/options"
@@ -49,6 +51,8 @@ type ServerRunOptions struct {
 	CloudProvider           *kubeoptions.CloudProviderOptions
 	APIEnablement           *genericoptions.APIEnablementOptions
 	EgressSelector          *genericoptions.EgressSelectorOptions
+	Metrics                 *metrics.Options
+	Logs                    *logs.Options
 
 	AllowPrivileged           bool
 	EnableLogsHandler         bool
@@ -56,7 +60,7 @@ type ServerRunOptions struct {
 	KubeletConfig             kubeletclient.KubeletClientConfig
 	KubernetesServiceNodePort int
 	MaxConnectionBytesPerSec  int64
-	ProxyCIDRWhitelist        kubeoptions.IPNetSlice
+	ProxyCIDRAllowlist        kubeoptions.IPNetSlice
 	// ServiceClusterIPRange is mapped to input provided by user
 	ServiceClusterIPRanges string
 	//PrimaryServiceClusterIPRange and SecondaryServiceClusterIPRange are the results
@@ -98,6 +102,8 @@ func NewServerRunOptions() *ServerRunOptions {
 		CloudProvider:           kubeoptions.NewCloudProviderOptions(),
 		APIEnablement:           genericoptions.NewAPIEnablementOptions(),
 		EgressSelector:          genericoptions.NewEgressSelectorOptions(),
+		Metrics:                 metrics.NewOptions(),
+		Logs:                    logs.NewOptions(),
 
 		EnableLogsHandler:      true,
 		EventTTL:               1 * time.Hour,
@@ -118,13 +124,12 @@ func NewServerRunOptions() *ServerRunOptions {
 				string(api.NodeExternalDNS),
 				string(api.NodeExternalIP),
 			},
-			EnableHTTPS: true,
 			HTTPTimeout: time.Duration(5) * time.Second,
 		},
 		ServiceNodePortRange: kubeoptions.DefaultServiceNodePortRange,
 	}
 	s.ServiceClusterIPRanges = kubeoptions.DefaultServiceIPCIDR.String()
-	s.ProxyCIDRWhitelist = kubeoptions.DefaultProxyCIDRWhitelist
+	s.ProxyCIDRAllowlist = kubeoptions.DefaultProxyCIDRAllowlist
 
 	// Overwrite the default for storage data format.
 	s.Etcd.DefaultStorageMediaType = "application/vnd.kubernetes.protobuf"
@@ -148,15 +153,8 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
 	s.APIEnablement.AddFlags(fss.FlagSet("API enablement"))
 	s.EgressSelector.AddFlags(fss.FlagSet("egress selector"))
 	s.Admission.AddFlags(fss.FlagSet("admission"))
-
-	// TODO(RainbowMango): move it to genericoptions before next flag comes.
-	mfs := fss.FlagSet("metrics")
-	mfs.StringVar(&s.ShowHiddenMetricsForVersion, "show-hidden-metrics-for-version", s.ShowHiddenMetricsForVersion,
-		"The previous version for which you want to show hidden metrics. "+
-			"Only the previous minor version is meaningful, other values will not be allowed. "+
-			"The format is <major>.<minor>, e.g.: '1.16'. "+
-			"The purpose of this format is make sure you have the opportunity to notice if the next release hides additional metrics, "+
-			"rather than being surprised when they are permanently removed in the release after that.")
+	s.Metrics.AddFlags(fss.FlagSet("metrics"))
+	s.Logs.AddFlags(fss.FlagSet("logs"))
 
 	// Note: the weird ""+ in below lines seems to be the only way to get gofmt to
 	// arrange these text blocks sensibly. Grrr.
@@ -201,18 +199,22 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
 	// TODO (khenidak) change documentation as we move IPv6DualStack feature from ALPHA to BETA
 	fs.StringVar(&s.ServiceClusterIPRanges, "service-cluster-ip-range", s.ServiceClusterIPRanges, ""+
 		"A CIDR notation IP range from which to assign service cluster IPs. This must not "+
-		"overlap with any IP ranges assigned to nodes for pods.")
+		"overlap with any IP ranges assigned to nodes or pods.")
 
-	fs.Var(&s.ProxyCIDRWhitelist, "proxy-cidr-whitelist", ""+
+	fs.Var(&s.ProxyCIDRAllowlist, "proxy-cidr-allowlist", ""+
 		"A comma-separated list of CIDR IP ranges which the API server can communicate with.")
+
+	fs.Var(&s.ProxyCIDRAllowlist, "proxy-cidr-whitelist", ""+
+		"Deprecated: Use '--proxy-cidr-allowlist' flag instead.")
 
 	fs.Var(&s.ServiceNodePortRange, "service-node-port-range", ""+
 		"A port range to reserve for services with NodePort visibility. "+
 		"Example: '30000-32767'. Inclusive at both ends of the range.")
 
 	// Kubelet related flags:
-	fs.BoolVar(&s.KubeletConfig.EnableHTTPS, "kubelet-https", s.KubeletConfig.EnableHTTPS,
-		"Use https for kubelet connections.")
+	kubeletHTTPS := true
+	fs.BoolVar(&kubeletHTTPS, "kubelet-https", kubeletHTTPS, "Use https for kubelet connections.")
+	fs.MarkDeprecated("kubelet-https", "API Server connections to kubelets always use https. This flag will be removed in 1.22.")
 
 	fs.StringSliceVar(&s.KubeletConfig.PreferredAddressTypes, "kubelet-preferred-address-types", s.KubeletConfig.PreferredAddressTypes,
 		"List of the preferred NodeAddressTypes to use for kubelet connections.")

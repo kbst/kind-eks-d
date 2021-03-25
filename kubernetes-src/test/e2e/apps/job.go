@@ -32,6 +32,7 @@ import (
 	e2ejob "k8s.io/kubernetes/test/e2e/framework/job"
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eresource "k8s.io/kubernetes/test/e2e/framework/resource"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -82,7 +83,7 @@ var _ = SIGDescribe("Job", func() {
 		framework.ExpectNoError(err, "failed to ensure number of pods associated with job %s is equal to parallelism count in namespace: %s", job.Name, f.Namespace.Name)
 
 		ginkgo.By("Delete the job")
-		err = framework.DeleteResourceAndWaitForGC(f.ClientSet, batchinternal.Kind("Job"), f.Namespace.Name, job.Name)
+		err = e2eresource.DeleteResourceAndWaitForGC(f.ClientSet, batchinternal.Kind("Job"), f.Namespace.Name, job.Name)
 		framework.ExpectNoError(err, "failed to delete the job in namespace: %s", f.Namespace.Name)
 
 		ginkgo.By("Ensure the pods associated with the job are also deleted")
@@ -91,7 +92,7 @@ var _ = SIGDescribe("Job", func() {
 	})
 
 	/*
-		Release : v1.16
+		Release: v1.16
 		Testname: Jobs, completion after task failure
 		Description: Explicitly cause the tasks to fail once initially. After restarting, the Job MUST
 		execute to completion.
@@ -147,7 +148,7 @@ var _ = SIGDescribe("Job", func() {
 	})
 
 	/*
-		Release : v1.15
+		Release: v1.15
 		Testname: Jobs, active pods, graceful termination
 		Description: Create a job. Ensure the active pods reflect paralellism in the namespace and delete the job. Job MUST be deleted successfully.
 	*/
@@ -162,7 +163,7 @@ var _ = SIGDescribe("Job", func() {
 		framework.ExpectNoError(err, "failed to ensure active pods == parallelism in namespace: %s", f.Namespace.Name)
 
 		ginkgo.By("delete a job")
-		framework.ExpectNoError(framework.DeleteResourceAndWaitForGC(f.ClientSet, batchinternal.Kind("Job"), f.Namespace.Name, job.Name))
+		framework.ExpectNoError(e2eresource.DeleteResourceAndWaitForGC(f.ClientSet, batchinternal.Kind("Job"), f.Namespace.Name, job.Name))
 
 		ginkgo.By("Ensuring job was deleted")
 		_, err = e2ejob.GetJob(f.ClientSet, f.Namespace.Name, job.Name)
@@ -171,7 +172,7 @@ var _ = SIGDescribe("Job", func() {
 	})
 
 	/*
-		Release : v1.16
+		Release: v1.16
 		Testname: Jobs, orphan pods, re-adoption
 		Description: Create a parallel job. The number of Pods MUST equal the level of parallelism.
 		Orphan a Pod by modifying its owner reference. The Job MUST re-adopt the orphan pod.

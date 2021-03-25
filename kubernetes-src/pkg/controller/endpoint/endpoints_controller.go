@@ -40,7 +40,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/prometheus/ratelimiter"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/api/v1/endpoints"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -79,7 +79,7 @@ const (
 func NewEndpointController(podInformer coreinformers.PodInformer, serviceInformer coreinformers.ServiceInformer,
 	endpointsInformer coreinformers.EndpointsInformer, client clientset.Interface, endpointUpdatesBatchPeriod time.Duration) *EndpointController {
 	broadcaster := record.NewBroadcaster()
-	broadcaster.StartLogging(klog.Infof)
+	broadcaster.StartStructuredLogging(0)
 	broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: client.CoreV1().Events("")})
 	recorder := broadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "endpoint-controller"})
 
@@ -110,6 +110,9 @@ func NewEndpointController(podInformer coreinformers.PodInformer, serviceInforme
 	e.podLister = podInformer.Lister()
 	e.podsSynced = podInformer.Informer().HasSynced
 
+	endpointsInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		DeleteFunc: e.onEndpointsDelete,
+	})
 	e.endpointsLister = endpointsInformer.Lister()
 	e.endpointsSynced = endpointsInformer.Informer().HasSynced
 
@@ -287,6 +290,15 @@ func (e *EndpointController) onServiceDelete(obj interface{}) {
 	e.queue.Add(key)
 }
 
+func (e *EndpointController) onEndpointsDelete(obj interface{}) {
+	key, err := controller.KeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("Couldn't get key for object %+v: %v", obj, err))
+		return
+	}
+	e.queue.Add(key)
+}
+
 // worker runs a worker thread that just dequeues items, processes them, and
 // marks them done. You may run as many of these in parallel as you wish; the
 // workqueue guarantees that they will not end up processing the same service
@@ -315,8 +327,13 @@ func (e *EndpointController) handleErr(err error, key interface{}) {
 		return
 	}
 
+	ns, name, keyErr := cache.SplitMetaNamespaceKey(key.(string))
+	if keyErr != nil {
+		klog.ErrorS(err, "Failed to split meta namespace cache key", "key", key)
+	}
+
 	if e.queue.NumRequeues(key) < maxRetries {
-		klog.V(2).Infof("Error syncing endpoints for service %q, retrying. Error: %v", key, err)
+		klog.V(2).InfoS("Error syncing endpoints, retrying", "service", klog.KRef(ns, name), "err", err)
 		e.queue.AddRateLimited(key)
 		return
 	}
@@ -455,9 +472,18 @@ func (e *EndpointController) syncService(key string) error {
 
 	createEndpoints := len(currentEndpoints.ResourceVersion) == 0
 
+	// Compare the sorted subsets and labels
+	// Remove the HeadlessService label from the endpoints if it exists,
+	// as this won't be set on the service itself
+	// and will cause a false negative in this diff check.
+	// But first check if it has that label to avoid expensive copies.
+	compareLabels := currentEndpoints.Labels
+	if _, ok := currentEndpoints.Labels[v1.IsHeadlessService]; ok {
+		compareLabels = utillabels.CloneAndRemoveLabel(currentEndpoints.Labels, v1.IsHeadlessService)
+	}
 	if !createEndpoints &&
 		apiequality.Semantic.DeepEqual(currentEndpoints.Subsets, subsets) &&
-		apiequality.Semantic.DeepEqual(currentEndpoints.Labels, service.Labels) {
+		apiequality.Semantic.DeepEqual(compareLabels, service.Labels) {
 		klog.V(5).Infof("endpoints are equal for %s/%s, skipping update", service.Namespace, service.Name)
 		return nil
 	}

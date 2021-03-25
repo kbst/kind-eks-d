@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"path"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -37,7 +37,7 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	f := framework.NewDefaultFramework("projected")
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, volume mode default
 	   Description: A Pod is created with projected volume source 'ConfigMap' to store a configMap with default permission mode. Pod MUST be able to read the content of the ConfigMap successfully and the mode on the volume MUST be -rw-r--r--.
 	*/
@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, volume mode 0400
 	   Description: A Pod is created with projected volume source 'ConfigMap' to store a configMap with permission mode set to 0400. Pod MUST be able to read the content of the ConfigMap successfully and the mode on the volume MUST be -r--------.
 	   This test is marked LinuxOnly since Windows does not support setting specific file permissions.
@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, non-root user
 	   Description: A Pod is created with projected volume source 'ConfigMap' to store a configMap as non-root user with uid 1000. Pod MUST be able to read the content of the ConfigMap successfully and the mode on the volume MUST be -rw-r--r--.
 	*/
@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, mapped
 	   Description: A Pod is created with projected volume source 'ConfigMap' to store a configMap with default permission mode. The ConfigMap is also mapped to a custom path. Pod MUST be able to read the content of the ConfigMap from the custom location successfully and the mode on the volume MUST be -rw-r--r--.
 	*/
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, mapped, volume mode 0400
 	   Description: A Pod is created with projected volume source 'ConfigMap' to store a configMap with permission mode set to 0400. The ConfigMap is also mapped to a custom path. Pod MUST be able to read the content of the ConfigMap from the custom location successfully and the mode on the volume MUST be -r--r--r--.
 	   This test is marked LinuxOnly since Windows does not support setting specific file permissions.
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, mapped, non-root user
 	   Description: A Pod is created with projected volume source 'ConfigMap' to store a configMap as non-root user with uid 1000. The ConfigMap is also mapped to a custom path. Pod MUST be able to read the content of the ConfigMap from the custom location successfully and the mode on the volume MUST be -r--r--r--.
 	*/
@@ -114,12 +114,12 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, update
 	   Description: A Pod is created with projected volume source 'ConfigMap' to store a configMap and performs a create and update to new value. Pod MUST be able to create the configMap with value-1. Pod MUST be able to update the value in the confgiMap to value-2.
 	*/
 	framework.ConformanceIt("updates should be reflected in volume [NodeConformance]", func() {
-		podLogTimeout := framework.GetPodSecretUpdateTimeout(f.ClientSet)
+		podLogTimeout := e2epod.GetPodSecretUpdateTimeout(f.ClientSet)
 		containerTimeoutArg := fmt.Sprintf("--retry_time=%v", int(podLogTimeout.Seconds()))
 
 		name := "projected-configmap-test-upd-" + string(uuid.NewUUID())
@@ -167,9 +167,9 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 				},
 				Containers: []v1.Container{
 					{
-						Name:    containerName,
-						Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-						Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volume/data-1"},
+						Name:  containerName,
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volume/data-1"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      volumeName,
@@ -202,12 +202,12 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, create, update and delete
 	   Description: Create a Pod with three containers with ConfigMaps namely a create, update and delete container. Create Container when started MUST not have configMap, update and delete containers MUST be created with a ConfigMap value as 'value-1'. Create a configMap in the create container, the Pod MUST be able to read the configMap from the create container. Update the configMap in the update container, Pod MUST be able to read the updated configMap value. Delete the configMap in the delete container. Pod MUST fail to read the configMap from the delete container.
 	*/
 	framework.ConformanceIt("optional updates should be reflected in volume [NodeConformance]", func() {
-		podLogTimeout := framework.GetPodSecretUpdateTimeout(f.ClientSet)
+		podLogTimeout := e2epod.GetPodSecretUpdateTimeout(f.ClientSet)
 		containerTimeoutArg := fmt.Sprintf("--retry_time=%v", int(podLogTimeout.Seconds()))
 		trueVal := true
 		volumeMountPath := "/etc/projected-configmap-volumes"
@@ -322,9 +322,9 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 				},
 				Containers: []v1.Container{
 					{
-						Name:    deleteContainerName,
-						Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-						Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volumes/delete/data-1"},
+						Name:  deleteContainerName,
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volumes/delete/data-1"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      deleteVolumeName,
@@ -334,9 +334,9 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 						},
 					},
 					{
-						Name:    updateContainerName,
-						Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-						Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volumes/update/data-3"},
+						Name:  updateContainerName,
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volumes/update/data-3"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      updateVolumeName,
@@ -346,9 +346,9 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 						},
 					},
 					{
-						Name:    createContainerName,
-						Image:   imageutils.GetE2EImage(imageutils.Mounttest),
-						Command: []string{"/mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volumes/create/data-1"},
+						Name:  createContainerName,
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--break_on_expected_content=false", containerTimeoutArg, "--file_content_in_loop=/etc/projected-configmap-volumes/create/data-1"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      createVolumeName,
@@ -403,7 +403,7 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 	})
 
 	/*
-	   Release : v1.9
+	   Release: v1.9
 	   Testname: Projected Volume, ConfigMap, multiple volume paths
 	   Description: A Pod is created with a projected volume source 'ConfigMap' to store a configMap. The configMap is mapped to two different volume mounts. Pod MUST be able to read the content of the configMap successfully from the two volume mounts.
 	*/
@@ -466,8 +466,8 @@ var _ = ginkgo.Describe("[sig-storage] Projected configMap", func() {
 				Containers: []v1.Container{
 					{
 						Name:  "projected-configmap-volume-test",
-						Image: imageutils.GetE2EImage(imageutils.Mounttest),
-						Args:  []string{"--file_content=/etc/projected-configmap-volume/data-1"},
+						Image: imageutils.GetE2EImage(imageutils.Agnhost),
+						Args:  []string{"mounttest", "--file_content=/etc/projected-configmap-volume/data-1"},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      volumeName,
@@ -556,8 +556,9 @@ func doProjectedConfigMapE2EWithoutMappings(f *framework.Framework, asUser bool,
 			Containers: []v1.Container{
 				{
 					Name:  "projected-configmap-volume-test",
-					Image: imageutils.GetE2EImage(imageutils.Mounttest),
+					Image: imageutils.GetE2EImage(imageutils.Agnhost),
 					Args: []string{
+						"mounttest",
 						"--file_content=/etc/projected-configmap-volume/data-1",
 						"--file_mode=/etc/projected-configmap-volume/data-1"},
 					VolumeMounts: []v1.VolumeMount{
@@ -585,7 +586,7 @@ func doProjectedConfigMapE2EWithoutMappings(f *framework.Framework, asUser bool,
 		pod.Spec.Volumes[0].VolumeSource.Projected.DefaultMode = defaultMode
 	}
 
-	fileModeRegexp := framework.GetFileModeRegex("/etc/projected-configmap-volume/data-1", defaultMode)
+	fileModeRegexp := getFileModeRegex("/etc/projected-configmap-volume/data-1", defaultMode)
 	output := []string{
 		"content of file \"/etc/projected-configmap-volume/data-1\": value-1",
 		fileModeRegexp,
@@ -643,8 +644,10 @@ func doProjectedConfigMapE2EWithMappings(f *framework.Framework, asUser bool, fs
 			Containers: []v1.Container{
 				{
 					Name:  "projected-configmap-volume-test",
-					Image: imageutils.GetE2EImage(imageutils.Mounttest),
-					Args: []string{"--file_content=/etc/projected-configmap-volume/path/to/data-2",
+					Image: imageutils.GetE2EImage(imageutils.Agnhost),
+					Args: []string{
+						"mounttest",
+						"--file_content=/etc/projected-configmap-volume/path/to/data-2",
 						"--file_mode=/etc/projected-configmap-volume/path/to/data-2"},
 					VolumeMounts: []v1.VolumeMount{
 						{
@@ -678,7 +681,7 @@ func doProjectedConfigMapE2EWithMappings(f *framework.Framework, asUser bool, fs
 		"content of file \"/etc/projected-configmap-volume/path/to/data-2\": value-2",
 	}
 	if fsGroup == 0 {
-		fileModeRegexp := framework.GetFileModeRegex("/etc/projected-configmap-volume/path/to/data-2", itemMode)
+		fileModeRegexp := getFileModeRegex("/etc/projected-configmap-volume/path/to/data-2", itemMode)
 		output = append(output, fileModeRegexp)
 	}
 	f.TestContainerOutputRegexp("consume configMaps", pod, 0, output)

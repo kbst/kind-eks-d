@@ -18,7 +18,7 @@ package cache
 
 import (
 	v1 "k8s.io/api/core/v1"
-	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
+	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 )
 
 // Cache collects pods' information and provides node-level aggregated information.
@@ -99,6 +99,8 @@ type Cache interface {
 	// UpdateSnapshot updates the passed infoSnapshot to the current contents of Cache.
 	// The node info contains aggregated information of pods scheduled (including assumed to be)
 	// on this node.
+	// The snapshot only includes Nodes that are not deleted at the time this function is called.
+	// nodeinfo.Node() is guaranteed to be not nil for all the nodes in the snapshot.
 	UpdateSnapshot(nodeSnapshot *Snapshot) error
 
 	// Dump produces a dump of the current cache.
@@ -108,5 +110,5 @@ type Cache interface {
 // Dump is a dump of the cache state.
 type Dump struct {
 	AssumedPods map[string]bool
-	Nodes       map[string]*schedulernodeinfo.NodeInfo
+	Nodes       map[string]*framework.NodeInfo
 }

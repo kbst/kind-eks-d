@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
-	"k8s.io/kubernetes/test/e2e/framework/volume"
+	e2evolume "k8s.io/kubernetes/test/e2e/framework/volume"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 )
 
@@ -170,7 +170,7 @@ type DriverInfo struct {
 	// Maximum single file size supported by this driver
 	MaxFileSize int64
 	// The range of disk size supported by this driver
-	SupportedSizeRange volume.SizeRange
+	SupportedSizeRange e2evolume.SizeRange
 	// Map of string for supported fs type
 	SupportedFsType sets.String
 	// Map of string for supported mount option
@@ -188,6 +188,29 @@ type DriverInfo struct {
 	// Only relevant if TopologyKeys is set. Defaults to 1.
 	// Example: multi-zonal disk requires at least 2 allowed topologies.
 	NumAllowedTopologies int
+	// [Optional] Scale parameters for stress tests.
+	// TODO(#96241): Rename this field to reflect the tests that consume it.
+	StressTestOptions *StressTestOptions
+	// [Optional] Scale parameters for volume snapshot stress tests.
+	VolumeSnapshotStressTestOptions *VolumeSnapshotStressTestOptions
+}
+
+// StressTestOptions contains parameters used for stress tests.
+type StressTestOptions struct {
+	// Number of pods to create in the test. This may also create
+	// up to 1 volume per pod.
+	NumPods int
+	// Number of times to restart each Pod.
+	NumRestarts int
+}
+
+// VolumeSnapshotStressTestOptions contains parameters used for volume snapshot stress tests.
+type VolumeSnapshotStressTestOptions struct {
+	// Number of pods to create in the test. This may also create
+	// up to 1 volume per pod.
+	NumPods int
+	// Number of snapshots to create for each volume.
+	NumSnapshots int
 }
 
 // PerTestConfig represents parameters that control test execution.
@@ -214,7 +237,10 @@ type PerTestConfig struct {
 	// Some test drivers initialize a storage server. This is
 	// the configuration that then has to be used to run tests.
 	// The values above are ignored for such tests.
-	ServerConfig *volume.TestConfig
+	ServerConfig *e2evolume.TestConfig
+
+	// Some drivers run in their own namespace
+	DriverNamespace *v1.Namespace
 }
 
 // GetUniqueDriverName returns unique driver name that can be used parallelly in tests
