@@ -18,17 +18,16 @@ package interpodaffinity
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	"k8s.io/kubernetes/pkg/scheduler/internal/cache"
-	"k8s.io/utils/pointer"
 )
 
 func TestPreferredAffinity(t *testing.T) {
@@ -583,8 +582,8 @@ func TestPreferredAffinity(t *testing.T) {
 			state := framework.NewCycleState()
 			snapshot := cache.NewSnapshot(test.pods, test.nodes)
 			p := &InterPodAffinity{
-				Args: Args{
-					HardPodAffinityWeight: pointer.Int32Ptr(DefaultHardPodAffinityWeight),
+				args: config.InterPodAffinityArgs{
+					HardPodAffinityWeight: 1,
 				},
 				sharedLister: snapshot,
 			}
@@ -614,6 +613,7 @@ func TestPreferredAffinity(t *testing.T) {
 					t.Errorf("expected:\n\t%+v,\ngot:\n\t%+v", test.expectedList, gotList)
 				}
 			}
+
 		})
 	}
 }
@@ -692,9 +692,9 @@ func TestPreferredAffinityWithHardPodAffinitySymmetricWeight(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			state := framework.NewCycleState()
 			snapshot := cache.NewSnapshot(test.pods, test.nodes)
-			fh, _ := framework.NewFramework(nil, nil, nil, framework.WithSnapshotSharedLister(snapshot))
+			fh, _ := runtime.NewFramework(nil, nil, nil, runtime.WithSnapshotSharedLister(snapshot))
 
-			args := &runtime.Unknown{Raw: []byte(fmt.Sprintf(`{"hardPodAffinityWeight":%d}`, test.hardPodAffinityWeight))}
+			args := &config.InterPodAffinityArgs{HardPodAffinityWeight: test.hardPodAffinityWeight}
 			p, err := New(args, fh)
 			if err != nil {
 				t.Fatal(err)

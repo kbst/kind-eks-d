@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	kubeoptions "k8s.io/kubernetes/pkg/kubeapiserver/options"
 )
 
 func CreateOutboundDialer(s completedServerRunOptions) (*http.Transport, error) {
-	proxyDialerFn := createWhitelistDialer(s.ProxyCIDRWhitelist)
+	proxyDialerFn := createAllowlistDialer(s.ProxyCIDRAllowlist)
 
 	proxyTLSClientConfig := &tls.Config{InsecureSkipVerify: true}
 
@@ -28,7 +28,7 @@ func CreateOutboundDialer(s completedServerRunOptions) (*http.Transport, error) 
 	return proxyTransport, nil
 }
 
-func createWhitelistDialer(whitelist kubeoptions.IPNetSlice) func(context.Context, string, string) (net.Conn, error) {
+func createAllowlistDialer(allowlist kubeoptions.IPNetSlice) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		start := time.Now()
 		id := mathrand.Int63() // So you can match begins/ends in the log.
@@ -37,7 +37,7 @@ func createWhitelistDialer(whitelist kubeoptions.IPNetSlice) func(context.Contex
 			klog.Infof("[%x: %v] Dialed in %v.", id, addr, time.Since(start))
 		}()
 
-		if !whitelist.Contains(strings.Split(addr, ":")[0]) {
+		if !allowlist.Contains(strings.Split(addr, ":")[0]) {
 			return nil, errors.New("Address is not allowed")
 		}
 		dialer := &net.Dialer{}

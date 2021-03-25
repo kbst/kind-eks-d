@@ -52,7 +52,7 @@ func (netSlice *IPNetSlice) Type() string {
 	return "[]net.IPNet"
 }
 
-// ContainsHost checks if all the IPs for a given hostname are in the whitelist
+// ContainsHost checks if all the IPs for a given hostname are in the allowlist
 func (netSlice *IPNetSlice) ContainsHost(ctx context.Context, host string) (bool, error) {
 	r := net.Resolver{}
 	resp, err := r.LookupIPAddr(ctx, host)
@@ -60,7 +60,7 @@ func (netSlice *IPNetSlice) ContainsHost(ctx context.Context, host string) (bool
 		return false, err
 	}
 	for _, host := range resp {
-		// reject if any of the IPs for a hostname are not in the whitelist
+		// reject if any of the IPs for a hostname are not in the allowlist
 		if !netSlice.Contains(host.String()) {
 			return false, nil
 		}
@@ -68,9 +68,9 @@ func (netSlice *IPNetSlice) ContainsHost(ctx context.Context, host string) (bool
 	return true, nil
 }
 
-// Contains checks if a given IP is in the whitelist
+// Contains checks if a given IP is in the allowlist
 func (netSlice *IPNetSlice) Contains(ip string) bool {
-	// if there are no whitelists, everything is allowed
+	// if there are no allowlists, everything is allowed
 	if len(*netSlice) == 0 {
 		return true
 	}

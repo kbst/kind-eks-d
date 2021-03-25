@@ -114,12 +114,15 @@ function detect_client_info() {
       i?86*)
         CLIENT_ARCH="386"
         ;;
+      ppc64le*)
+        CLIENT_ARCH="ppc64le"
+        ;;
       s390x*)
         CLIENT_ARCH="s390x"
         ;;
       *)
         echo "Unknown, unsupported architecture (${machine})." >&2
-        echo "Supported architectures x86_64, i686, arm, arm64, s390x." >&2
+        echo "Supported architectures x86_64, i686, arm, arm64, ppc64le, s390x." >&2
         echo "Bailing out." >&2
         exit 3
         ;;
@@ -135,11 +138,11 @@ function md5sum_file() {
   fi
 }
 
-function sha1sum_file() {
-  if which sha1sum >/dev/null 2>&1; then
-    sha1sum "$1" | awk '{ print $1 }'
+function sha512sum_file() {
+  if which sha512sum >/dev/null 2>&1; then
+    sha512sum "$1" | awk '{ print $1 }'
   else
-    shasum -a1 "$1" | awk '{ print $1 }'
+    shasum -a512 "$1" | awk '{ print $1 }'
   fi
 }
 
@@ -147,7 +150,7 @@ function download_tarball() {
   local -r download_path="$1"
   local -r file="$2"
   local trace_on="off"
-  if [[ -o xtrace ]]; then 
+  if [[ -o xtrace ]]; then
     trace_on="on"
     set +x
   fi
@@ -168,11 +171,11 @@ function download_tarball() {
     exit 4
   fi
   echo
-  local md5sum sha1sum
+  local md5sum sha512sum
   md5sum=$(md5sum_file "${download_path}/${file}")
   echo "md5sum(${file})=${md5sum}"
-  sha1sum=$(sha1sum_file "${download_path}/${file}")
-  echo "sha1sum(${file})=${sha1sum}"
+  sha512sum=$(sha512sum_file "${download_path}/${file}")
+  echo "sha512sum(${file})=${sha512sum}"
   echo
   # TODO: add actual verification
   if [[ "${trace_on}" == "on" ]]; then

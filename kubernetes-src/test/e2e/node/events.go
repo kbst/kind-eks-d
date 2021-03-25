@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 
 	"github.com/onsi/ginkgo"
 )
@@ -36,7 +37,7 @@ var _ = SIGDescribe("Events", func() {
 	f := framework.NewDefaultFramework("events")
 
 	/*
-		Release : v1.9
+		Release: v1.9
 		Testname: Pod events, verify event from Scheduler and Kubelet
 		Description: Create a Pod, make sure that the Pod can be queried. Create a event selector for the kind=Pod and the source is the Scheduler. List of the events MUST be at least one. Create a event selector for kind=Pod and the source is the Kubelet. List of the events MUST be at least one. Both Scheduler and Kubelet MUST send events when scheduling and running a Pod.
 	*/
@@ -76,7 +77,7 @@ var _ = SIGDescribe("Events", func() {
 			framework.Failf("Failed to create pod: %v", err)
 		}
 
-		framework.ExpectNoError(f.WaitForPodRunning(pod.Name))
+		framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
 
 		ginkgo.By("verifying the pod is in kubernetes")
 		selector := labels.SelectorFromSet(labels.Set(map[string]string{"time": value}))

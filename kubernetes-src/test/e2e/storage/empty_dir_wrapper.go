@@ -58,7 +58,7 @@ var _ = utils.SIGDescribe("EmptyDir wrapper volumes", func() {
 	f := framework.NewDefaultFramework("emptydir-wrapper")
 
 	/*
-		Release : v1.13
+		Release: v1.13
 		Testname: EmptyDir Wrapper Volume, Secret and ConfigMap volumes, no conflict
 		Description: Secret volume and ConfigMap volume is created with data. Pod MUST be able to start with Secret and ConfigMap volumes mounted into the container.
 	*/
@@ -180,7 +180,7 @@ var _ = utils.SIGDescribe("EmptyDir wrapper volumes", func() {
 	// appears to be less prone to the race problem.
 
 	/*
-		Release : v1.13
+		Release: v1.13
 		Testname: EmptyDir Wrapper Volume, ConfigMap volumes, no race
 		Description: Create 50 ConfigMaps Volumes and 5 replicas of pod with these ConfigMapvolumes mounted. Pod MUST NOT fail waiting for Volumes.
 	*/
@@ -418,7 +418,7 @@ func testNoWrappedVolumeRace(f *framework.Framework, volumes []v1.Volume, volume
 		if pod.DeletionTimestamp != nil {
 			continue
 		}
-		err = f.WaitForPodRunning(pod.Name)
+		err = e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name)
 		framework.ExpectNoError(err, "Failed waiting for pod %s to enter running state", pod.Name)
 	}
 }

@@ -43,7 +43,8 @@ readonly KUBE_BUILD_IMAGE_REPO=kube-build
 readonly KUBE_BUILD_IMAGE_CROSS_TAG="$(cat "${KUBE_ROOT}/build/build-image/cross/VERSION")"
 
 readonly KUBE_DOCKER_REGISTRY="${KUBE_DOCKER_REGISTRY:-k8s.gcr.io}"
-readonly KUBE_BASE_IMAGE_REGISTRY="${KUBE_BASE_IMAGE_REGISTRY:-us.gcr.io/k8s-artifacts-prod/build-image}"
+readonly KUBE_BASE_IMAGE_REGISTRY="${KUBE_BASE_IMAGE_REGISTRY:-k8s.gcr.io/build-image}"
+readonly KUBE_PROXY_BASE_IMAGE_REGISTRY="${KUBE_PROXY_BASE_IMAGE_REGISTRY:-$KUBE_BASE_IMAGE_REGISTRY}"
 
 # This version number is used to cause everyone to rebuild their data containers
 # and build image.  This is especially useful for automated build systems like
@@ -93,16 +94,15 @@ readonly KUBE_CONTAINER_RSYNC_PORT=8730
 #
 # $1 - server architecture
 kube::build::get_docker_wrapped_binaries() {
-  local arch=$1
-  local debian_base_version=v2.1.3
-  local debian_iptables_version=v12.1.2
+  local debian_iptables_version="${KUBE_PROXY_BASE_IMAGE_VERSION:-v12.1.2}"
+  local go_runner_version=buster-v2.2.2
   ### If you change any of these lists, please also update DOCKERIZED_BINARIES
   ### in build/BUILD. And kube::golang::server_image_targets
   local targets=(
-    "kube-apiserver,${KUBE_BASE_IMAGE_REGISTRY}/debian-base-${arch}:${debian_base_version}"
-    "kube-controller-manager,${KUBE_BASE_IMAGE_REGISTRY}/debian-base-${arch}:${debian_base_version}"
-    "kube-scheduler,${KUBE_BASE_IMAGE_REGISTRY}/debian-base-${arch}:${debian_base_version}"
-    "kube-proxy,${KUBE_BASE_IMAGE_REGISTRY}/debian-iptables-${arch}:${debian_iptables_version}"
+    "kube-apiserver,${KUBE_BASE_IMAGE_REGISTRY}/go-runner:${go_runner_version}"
+    "kube-controller-manager,${KUBE_BASE_IMAGE_REGISTRY}/go-runner:${go_runner_version}"
+    "kube-scheduler,${KUBE_BASE_IMAGE_REGISTRY}/go-runner:${go_runner_version}"
+    "kube-proxy,${KUBE_PROXY_BASE_IMAGE_REGISTRY}/debian-iptables:${debian_iptables_version}"
   )
 
   echo "${targets[@]}"
@@ -163,6 +163,9 @@ function kube::build::verify_prereqs() {
 
   kube::version::get_version_vars
   kube::version::save_version_vars "${KUBE_ROOT}/.dockerized-kube-version-defs"
+
+  # Without this, the user's umask can leak through.
+  umask 0022
 }
 
 # ---------------------------------------------------------------------------
@@ -254,7 +257,7 @@ function kube::build::update_dockerfile() {
   sed "${sed_opts[@]}" "s/KUBE_BUILD_IMAGE_CROSS_TAG/${KUBE_BUILD_IMAGE_CROSS_TAG}/" "${LOCAL_OUTPUT_BUILD_CONTEXT}/Dockerfile"
 }
 
-function  kube::build::set_proxy() {
+function kube::build::set_proxy() {
   if [[ -n "${KUBERNETES_HTTPS_PROXY:-}" ]]; then
     echo "ENV https_proxy $KUBERNETES_HTTPS_PROXY" >> "${LOCAL_OUTPUT_BUILD_CONTEXT}/Dockerfile"
   fi
@@ -730,7 +733,6 @@ function kube::build::copy_output() {
     --prune-empty-dirs \
     --filter='- /_temp/' \
     --filter='+ /vendor/' \
-    --filter='+ /Godeps/' \
     --filter='+ /staging/***/Godeps/**' \
     --filter='+ /_output/dockerized/bin/**' \
     --filter='+ zz_generated.*' \

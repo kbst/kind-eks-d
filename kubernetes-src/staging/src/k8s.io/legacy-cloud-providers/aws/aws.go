@@ -50,7 +50,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/sts"
 	"gopkg.in/gcfg.v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -211,6 +211,18 @@ const ServiceAnnotationLoadBalancerHCInterval = "service.beta.kubernetes.io/aws-
 // service to specify a comma separated list of EIP allocations to use as
 // static IP addresses for the NLB. Only supported on elbv2 (NLB)
 const ServiceAnnotationLoadBalancerEIPAllocations = "service.beta.kubernetes.io/aws-load-balancer-eip-allocations"
+
+// ServiceAnnotationLoadBalancerTargetNodeLabels is the annotation used on the service
+// to specify a comma-separated list of key-value pairs which will be used to select
+// the target nodes for the load balancer
+// For example: "Key1=Val1,Key2=Val2,KeyNoVal1=,KeyNoVal2"
+const ServiceAnnotationLoadBalancerTargetNodeLabels = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
+
+// ServiceAnnotationLoadBalancerSubnets is the annotation used on the service to specify the
+// Availability Zone configuration for the load balancer. The values are comma separated list of
+// subnetID or subnetName from different AZs
+// By default, the controller will auto-discover the subnets
+const ServiceAnnotationLoadBalancerSubnets = "service.beta.kubernetes.io/aws-load-balancer-subnets"
 
 // Event key when a volume is stuck on attaching state when being attached to a volume
 const volumeAttachmentStuck = "VolumeAttachmentStuck"
@@ -1386,7 +1398,7 @@ func (c *Cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, 
 	c.clientBuilder = clientBuilder
 	c.kubeClient = clientBuilder.ClientOrDie("aws-cloud-provider")
 	c.eventBroadcaster = record.NewBroadcaster()
-	c.eventBroadcaster.StartLogging(klog.Infof)
+	c.eventBroadcaster.StartStructuredLogging(0)
 	c.eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: c.kubeClient.CoreV1().Events("")})
 	c.eventRecorder = c.eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "aws-cloud-provider"})
 }
@@ -1409,6 +1421,12 @@ func (c *Cloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
 // Instances returns an implementation of Instances for Amazon Web Services.
 func (c *Cloud) Instances() (cloudprovider.Instances, bool) {
 	return c, true
+}
+
+// InstancesV2 returns an implementation of InstancesV2 for Amazon Web Services.
+// TODO: implement ONLY for external cloud provider
+func (c *Cloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
+	return nil, false
 }
 
 // Zones returns an implementation of Zones for Amazon Web Services.
@@ -1920,12 +1938,8 @@ func (c *Cloud) getMountDevice(
 	volumeStatus := map[EBSVolumeID]string{} // for better logging of volume status
 	for _, blockDevice := range info.BlockDeviceMappings {
 		name := aws.StringValue(blockDevice.DeviceName)
-		if strings.HasPrefix(name, "/dev/sd") {
-			name = name[7:]
-		}
-		if strings.HasPrefix(name, "/dev/xvd") {
-			name = name[8:]
-		}
+		name = strings.TrimPrefix(name, "/dev/sd")
+		name = strings.TrimPrefix(name, "/dev/xvd")
 		if len(name) < 1 || len(name) > 2 {
 			klog.Warningf("Unexpected EBS DeviceName: %q", aws.StringValue(blockDevice.DeviceName))
 		}
@@ -2861,7 +2875,10 @@ func (c *Cloud) ResizeDisk(
 		return oldSize, descErr
 	}
 	// AWS resizes in chunks of GiB (not GB)
-	requestGiB := volumehelpers.RoundUpToGiB(newSize)
+	requestGiB, err := volumehelpers.RoundUpToGiB(newSize)
+	if err != nil {
+		return oldSize, err
+	}
 	newSizeQuant := resource.MustParse(fmt.Sprintf("%dGi", requestGiB))
 
 	// If disk already if of greater or equal size than requested we return
@@ -3356,7 +3373,7 @@ func findTag(tags []*ec2.Tag, key string) (string, bool) {
 	return "", false
 }
 
-// Finds the subnets associated with the cluster, by matching tags.
+// Finds the subnets associated with the cluster, by matching cluster tags if present.
 // For maximal backwards compatibility, if no subnets are tagged, it will fall-back to the current subnet.
 // However, in future this will likely be treated as an error.
 func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
@@ -3371,6 +3388,8 @@ func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
 	var matches []*ec2.Subnet
 	for _, subnet := range subnets {
 		if c.tagging.hasClusterTag(subnet.Tags) {
+			matches = append(matches, subnet)
+		} else if c.tagging.hasNoClusterPrefixTag(subnet.Tags) {
 			matches = append(matches, subnet)
 		}
 	}
@@ -3435,7 +3454,7 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 			continue
 		}
 
-		// Try to break the tie using a tag
+		// Try to break the tie using the role tag
 		var tagName string
 		if internalELB {
 			tagName = TagNameSubnetInternalELB
@@ -3448,6 +3467,16 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 
 		if existingHasTag != subnetHasTag {
 			if subnetHasTag {
+				subnetsByAZ[az] = subnet
+			}
+			continue
+		}
+
+		// Prefer the one with the cluster Tag
+		existingHasClusterTag := c.tagging.hasClusterTag(existing.Tags)
+		subnetHasClusterTag := c.tagging.hasClusterTag(subnet.Tags)
+		if existingHasClusterTag != subnetHasClusterTag {
+			if subnetHasClusterTag {
 				subnetsByAZ[az] = subnet
 			}
 			continue
@@ -3478,6 +3507,98 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 	}
 
 	return subnetIDs, nil
+}
+
+func splitCommaSeparatedString(commaSeparatedString string) []string {
+	var result []string
+	parts := strings.Split(commaSeparatedString, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if len(part) == 0 {
+			continue
+		}
+		result = append(result, part)
+	}
+	return result
+}
+
+func parseStringAnnotation(annotations map[string]string, annotation string, value *string) bool {
+	if v, ok := annotations[annotation]; ok {
+		*value = v
+		return true
+	}
+	return false
+}
+
+// parses comma separated values from annotation into string slice, returns true if annotation exists
+func parseStringSliceAnnotation(annotations map[string]string, annotation string, value *[]string) bool {
+	rawValue := ""
+	if exists := parseStringAnnotation(annotations, annotation, &rawValue); !exists {
+		return false
+	}
+	*value = splitCommaSeparatedString(rawValue)
+	return true
+}
+
+func (c *Cloud) getLoadBalancerSubnets(service *v1.Service, internalELB bool) ([]string, error) {
+	var rawSubnetNameOrIDs []string
+	if exists := parseStringSliceAnnotation(service.Annotations, ServiceAnnotationLoadBalancerSubnets, &rawSubnetNameOrIDs); exists {
+		return c.resolveSubnetNameOrIDs(rawSubnetNameOrIDs)
+	}
+	return c.findELBSubnets(internalELB)
+}
+
+func (c *Cloud) resolveSubnetNameOrIDs(subnetNameOrIDs []string) ([]string, error) {
+	var subnetIDs []string
+	var subnetNames []string
+	if len(subnetNameOrIDs) == 0 {
+		return []string{}, fmt.Errorf("unable to resolve empty subnet slice")
+	}
+	for _, nameOrID := range subnetNameOrIDs {
+		if strings.HasPrefix(nameOrID, "subnet-") {
+			subnetIDs = append(subnetIDs, nameOrID)
+		} else {
+			subnetNames = append(subnetNames, nameOrID)
+		}
+	}
+	var resolvedSubnets []*ec2.Subnet
+	if len(subnetIDs) > 0 {
+		req := &ec2.DescribeSubnetsInput{
+			SubnetIds: aws.StringSlice(subnetIDs),
+		}
+		subnets, err := c.ec2.DescribeSubnets(req)
+		if err != nil {
+			return []string{}, err
+		}
+		resolvedSubnets = append(resolvedSubnets, subnets...)
+	}
+	if len(subnetNames) > 0 {
+		req := &ec2.DescribeSubnetsInput{
+			Filters: []*ec2.Filter{
+				{
+					Name:   aws.String("tag:Name"),
+					Values: aws.StringSlice(subnetNames),
+				},
+				{
+					Name:   aws.String("vpc-id"),
+					Values: aws.StringSlice([]string{c.vpcID}),
+				},
+			},
+		}
+		subnets, err := c.ec2.DescribeSubnets(req)
+		if err != nil {
+			return []string{}, err
+		}
+		resolvedSubnets = append(resolvedSubnets, subnets...)
+	}
+	if len(resolvedSubnets) != len(subnetNameOrIDs) {
+		return []string{}, fmt.Errorf("expected to find %v, but found %v subnets", len(subnetNameOrIDs), len(resolvedSubnets))
+	}
+	var subnets []string
+	for _, subnet := range resolvedSubnets {
+		subnets = append(subnets, aws.StringValue(subnet.SubnetId))
+	}
+	return subnets, nil
 }
 
 func isSubnetPublic(rt []*ec2.RouteTable, subnetID string) (bool, error) {
@@ -3586,7 +3707,7 @@ func (c *Cloud) buildELBSecurityGroupList(serviceName types.NamespacedName, load
 			// Create a security group for the load balancer
 			sgName := "k8s-elb-" + loadBalancerName
 			sgDescription := fmt.Sprintf("Security group for Kubernetes ELB %s (%v)", loadBalancerName, serviceName)
-			securityGroupID, err = c.ensureSecurityGroup(sgName, sgDescription, getLoadBalancerAdditionalTags(annotations))
+			securityGroupID, err = c.ensureSecurityGroup(sgName, sgDescription, getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags))
 			if err != nil {
 				klog.Errorf("Error creating load balancer security group: %q", err)
 				return nil, setupSg, err
@@ -3760,7 +3881,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		return nil, fmt.Errorf("LoadBalancerIP cannot be specified for AWS ELB")
 	}
 
-	instances, err := c.findInstancesForELB(nodes)
+	instances, err := c.findInstancesForELB(nodes, annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -3790,7 +3911,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 
 		// Find the subnets that the ELB will live in
-		subnetIDs, err := c.findELBSubnets(internalELB)
+		subnetIDs, err := c.getLoadBalancerSubnets(apiService, internalELB)
 		if err != nil {
 			klog.Errorf("Error listing subnets in VPC: %q", err)
 			return nil, err
@@ -3957,7 +4078,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	}
 
 	// Find the subnets that the ELB will live in
-	subnetIDs, err := c.findELBSubnets(internalELB)
+	subnetIDs, err := c.getLoadBalancerSubnets(apiService, internalELB)
 	if err != nil {
 		klog.Errorf("Error listing subnets in VPC: %q", err)
 		return nil, err
@@ -4551,7 +4672,7 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 	if isLBExternal(service.Annotations) {
 		return cloudprovider.ImplementedElsewhere
 	}
-	instances, err := c.findInstancesForELB(nodes)
+	instances, err := c.findInstancesForELB(nodes, service.Annotations)
 	if err != nil {
 		return err
 	}

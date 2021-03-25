@@ -28,7 +28,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-07-01/compute"
+	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-12-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2019-06-01/network"
 	"github.com/Azure/go-autorest/autorest/to"
 
@@ -38,7 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	azcache "k8s.io/legacy-cloud-providers/azure/cache"
 
 	"k8s.io/component-base/featuregate"
@@ -135,7 +135,7 @@ func (az *Cloud) getNetworkResourceSubscriptionID() string {
 func (az *Cloud) mapLoadBalancerNameToVMSet(lbName string, clusterName string) (vmSetName string) {
 	vmSetName = strings.TrimSuffix(lbName, InternalLoadBalancerNameSuffix)
 	if strings.EqualFold(clusterName, vmSetName) {
-		vmSetName = az.vmSet.GetPrimaryVMSetName()
+		vmSetName = az.VMSet.GetPrimaryVMSetName()
 	}
 
 	return vmSetName
@@ -150,7 +150,7 @@ func (az *Cloud) getAzureLoadBalancerName(clusterName string, vmSetName string, 
 		clusterName = az.LoadBalancerName
 	}
 	lbNamePrefix := vmSetName
-	if strings.EqualFold(vmSetName, az.vmSet.GetPrimaryVMSetName()) || az.useStandardLoadBalancer() {
+	if strings.EqualFold(vmSetName, az.VMSet.GetPrimaryVMSetName()) || az.useStandardLoadBalancer() {
 		lbNamePrefix = clusterName
 	}
 	if isInternal {
@@ -732,7 +732,7 @@ func (as *availabilitySet) EnsureHostInPool(service *v1.Service, nodeName types.
 			return "", "", "", nil, nil
 		}
 
-		klog.Errorf("error: az.EnsureHostInPool(%s), az.vmSet.GetPrimaryInterface.Get(%s, %s), err=%v", nodeName, vmName, vmSetName, err)
+		klog.Errorf("error: az.EnsureHostInPool(%s), az.VMSet.GetPrimaryInterface.Get(%s, %s), err=%v", nodeName, vmName, vmSetName, err)
 		return "", "", "", nil, err
 	}
 

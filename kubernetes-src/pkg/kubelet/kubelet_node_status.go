@@ -31,9 +31,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	cloudprovider "k8s.io/cloud-provider"
 	cloudproviderapi "k8s.io/cloud-provider/api"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	k8s_api_v1 "k8s.io/kubernetes/pkg/apis/core/v1"
 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
@@ -104,10 +105,6 @@ func (kl *Kubelet) tryRegisterWithAPIServer(node *v1.Node) bool {
 	}
 
 	originalNode := existingNode.DeepCopy()
-	if originalNode == nil {
-		klog.Errorf("Nil %q node object", kl.nodeName)
-		return false
-	}
 
 	klog.Infof("Node %s was previously registered", kl.nodeName)
 
@@ -117,6 +114,7 @@ func (kl *Kubelet) tryRegisterWithAPIServer(node *v1.Node) bool {
 	requiresUpdate := kl.reconcileCMADAnnotationWithExistingNode(node, existingNode)
 	requiresUpdate = kl.updateDefaultLabels(node, existingNode) || requiresUpdate
 	requiresUpdate = kl.reconcileExtendedResource(node, existingNode) || requiresUpdate
+	requiresUpdate = kl.reconcileHugePageResource(node, existingNode) || requiresUpdate
 	if requiresUpdate {
 		if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, existingNode); err != nil {
 			klog.Errorf("Unable to reconcile node %q with API server: error updating node: %v", kl.nodeName, err)
@@ -127,9 +125,56 @@ func (kl *Kubelet) tryRegisterWithAPIServer(node *v1.Node) bool {
 	return true
 }
 
+// reconcileHugePageResource will update huge page capacity for each page size and remove huge page sizes no longer supported
+func (kl *Kubelet) reconcileHugePageResource(initialNode, existingNode *v1.Node) bool {
+	requiresUpdate := updateDefaultResources(initialNode, existingNode)
+	supportedHugePageResources := sets.String{}
+
+	for resourceName := range initialNode.Status.Capacity {
+		if !v1helper.IsHugePageResourceName(resourceName) {
+			continue
+		}
+		supportedHugePageResources.Insert(string(resourceName))
+
+		initialCapacity := initialNode.Status.Capacity[resourceName]
+		initialAllocatable := initialNode.Status.Allocatable[resourceName]
+
+		capacity, resourceIsSupported := existingNode.Status.Capacity[resourceName]
+		allocatable := existingNode.Status.Allocatable[resourceName]
+
+		// Add or update capacity if it the size was previously unsupported or has changed
+		if !resourceIsSupported || capacity.Cmp(initialCapacity) != 0 {
+			existingNode.Status.Capacity[resourceName] = initialCapacity.DeepCopy()
+			requiresUpdate = true
+		}
+
+		// Add or update allocatable if it the size was previously unsupported or has changed
+		if !resourceIsSupported || allocatable.Cmp(initialAllocatable) != 0 {
+			existingNode.Status.Allocatable[resourceName] = initialAllocatable.DeepCopy()
+			requiresUpdate = true
+		}
+
+	}
+
+	for resourceName := range existingNode.Status.Capacity {
+		if !v1helper.IsHugePageResourceName(resourceName) {
+			continue
+		}
+
+		// If huge page size no longer is supported, we remove it from the node
+		if !supportedHugePageResources.Has(string(resourceName)) {
+			delete(existingNode.Status.Capacity, resourceName)
+			delete(existingNode.Status.Allocatable, resourceName)
+			klog.Infof("Removing now unsupported huge page resource named: %s", resourceName)
+			requiresUpdate = true
+		}
+	}
+	return requiresUpdate
+}
+
 // Zeros out extended resource capacity during reconciliation.
 func (kl *Kubelet) reconcileExtendedResource(initialNode, node *v1.Node) bool {
-	requiresUpdate := false
+	requiresUpdate := updateDefaultResources(initialNode, node)
 	// Check with the device manager to see if node has been recreated, in which case extended resources should be zeroed until they are available
 	if kl.containerManager.ShouldResetExtendedResourceCapacity() {
 		for k := range node.Status.Capacity {
@@ -139,6 +184,29 @@ func (kl *Kubelet) reconcileExtendedResource(initialNode, node *v1.Node) bool {
 				node.Status.Allocatable[k] = *resource.NewQuantity(int64(0), resource.DecimalSI)
 				requiresUpdate = true
 			}
+		}
+	}
+	return requiresUpdate
+}
+
+// updateDefaultResources will set the default resources on the existing node according to the initial node
+func updateDefaultResources(initialNode, existingNode *v1.Node) bool {
+	requiresUpdate := false
+	if existingNode.Status.Capacity == nil {
+		if initialNode.Status.Capacity != nil {
+			existingNode.Status.Capacity = initialNode.Status.Capacity.DeepCopy()
+			requiresUpdate = true
+		} else {
+			existingNode.Status.Capacity = make(map[v1.ResourceName]resource.Quantity)
+		}
+	}
+
+	if existingNode.Status.Allocatable == nil {
+		if initialNode.Status.Allocatable != nil {
+			existingNode.Status.Allocatable = initialNode.Status.Allocatable.DeepCopy()
+			requiresUpdate = true
+		} else {
+			existingNode.Status.Allocatable = make(map[v1.ResourceName]resource.Quantity)
 		}
 	}
 	return requiresUpdate
@@ -291,17 +359,17 @@ func (kl *Kubelet) initialNode(ctx context.Context) (*v1.Node, error) {
 			node.Annotations = make(map[string]string)
 		}
 
-		klog.Infof("Setting node annotation to enable volume controller attach/detach")
+		klog.V(2).Infof("Setting node annotation to enable volume controller attach/detach")
 		node.Annotations[volutil.ControllerManagedAttachAnnotation] = "true"
 	} else {
-		klog.Infof("Controller attach/detach is disabled for this node; Kubelet will attach and detach volumes")
+		klog.V(2).Infof("Controller attach/detach is disabled for this node; Kubelet will attach and detach volumes")
 	}
 
 	if kl.keepTerminatedPodVolumes {
 		if node.Annotations == nil {
 			node.Annotations = make(map[string]string)
 		}
-		klog.Infof("Setting node annotation to keep pod volumes of terminated pods attached to the node")
+		klog.V(2).Infof("Setting node annotation to keep pod volumes of terminated pods attached to the node")
 		node.Annotations[volutil.KeepTerminatedPodVolumesAnnotation] = "true"
 	}
 

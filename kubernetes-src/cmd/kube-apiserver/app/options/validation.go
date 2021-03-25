@@ -23,21 +23,21 @@ import (
 	"strings"
 
 	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
+	genericfeatures "k8s.io/apiserver/pkg/features"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/component-base/metrics"
 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/features"
 	netutils "k8s.io/utils/net"
 )
 
-func validateProxyCIDRWhitelist(options *ServerRunOptions) []error {
+func validateProxyCIDRAllowlist(options *ServerRunOptions) []error {
 	errors := []error{}
 
 	// if its empty, don't add any IPs to the list
-	for _, cidr := range options.ProxyCIDRWhitelist {
+	for _, cidr := range options.ProxyCIDRAllowlist {
 		if cidr.IP == nil {
-			errors = append(errors, fmt.Errorf("invalid --proxy-cidr-whitelist specified"))
+			errors = append(errors, fmt.Errorf("invalid --proxy-cidr-allowlist (or --proxy-cidr-whitelist) specified"))
 		}
 	}
 	return errors
@@ -47,6 +47,8 @@ func validateProxyCIDRWhitelist(options *ServerRunOptions) []error {
 // validateClusterIPFlags is expected to be called after Complete()
 func validateClusterIPFlags(options *ServerRunOptions) []error {
 	var errs []error
+	// maxCIDRBits is used to define the maximum CIDR size for the cluster ip(s)
+	const maxCIDRBits = 20
 
 	// validate that primary has been processed by user provided values or it has been defaulted
 	if options.PrimaryServiceClusterIPRange.IP == nil {
@@ -60,9 +62,8 @@ func validateClusterIPFlags(options *ServerRunOptions) []error {
 
 	// Complete() expected to have set Primary* and Secondary*
 	// primary CIDR validation
-	var ones, bits = options.PrimaryServiceClusterIPRange.Mask.Size()
-	if bits-ones > 20 {
-		errs = append(errs, errors.New("specified --service-cluster-ip-range is too large"))
+	if err := validateMaxCIDRRange(options.PrimaryServiceClusterIPRange, maxCIDRBits, "--service-cluster-ip-range"); err != nil {
+		errs = append(errs, err)
 	}
 
 	// Secondary IP validation
@@ -86,16 +87,24 @@ func validateClusterIPFlags(options *ServerRunOptions) []error {
 			errs = append(errs, errors.New("--service-cluster-ip-range and --secondary-service-cluster-ip-range must be of different IP family"))
 		}
 
-		// should be smallish sized cidr, this thing is kept in etcd
-		// bigger cidr (specially those offered by IPv6) will add no value
-		// significantly increase snapshotting time.
-		var ones, bits = options.SecondaryServiceClusterIPRange.Mask.Size()
-		if bits-ones > 20 {
-			errs = append(errs, errors.New("specified --secondary-service-cluster-ip-range is too large"))
+		if err := validateMaxCIDRRange(options.SecondaryServiceClusterIPRange, maxCIDRBits, "--secondary-service-cluster-ip-range"); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
 	return errs
+}
+
+func validateMaxCIDRRange(cidr net.IPNet, maxCIDRBits int, cidrFlag string) error {
+	// Should be smallish sized cidr, this thing is kept in etcd
+	// bigger cidr (specially those offered by IPv6) will add no value
+	// significantly increase snapshotting time.
+	var ones, bits = cidr.Mask.Size()
+	if bits-ones > maxCIDRBits {
+		return fmt.Errorf("specified %s is too large; for %d-bit addresses, the mask must be >= %d", cidrFlag, bits, bits-maxCIDRBits)
+	}
+
+	return nil
 }
 
 func validateServiceNodePort(options *ServerRunOptions) []error {
@@ -139,6 +148,25 @@ func validateTokenRequest(options *ServerRunOptions) []error {
 	return errs
 }
 
+func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
+	if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.APIPriorityAndFairness) && options.GenericServerRunOptions.EnablePriorityAndFairness {
+		// We need the alpha API enabled.  There are only a few ways to turn it on
+		enabledAPIString := options.APIEnablement.RuntimeConfig.String()
+		switch {
+		case strings.Contains(enabledAPIString, "api/all=true"):
+			return nil
+		case strings.Contains(enabledAPIString, "api/alpha=true"):
+			return nil
+		case strings.Contains(enabledAPIString, "flowcontrol.apiserver.k8s.io/v1alpha1=true"):
+			return nil
+		default:
+			return []error{fmt.Errorf("enabling APIPriorityAndFairness requires --runtime-confg=flowcontrol.apiserver.k8s.io/v1alpha1=true to enable the required API")}
+		}
+	}
+
+	return nil
+}
+
 // Validate checks ServerRunOptions and return a slice of found errs.
 func (s *ServerRunOptions) Validate() []error {
 	var errs []error
@@ -146,11 +174,12 @@ func (s *ServerRunOptions) Validate() []error {
 		errs = append(errs, fmt.Errorf("--apiserver-count should be a positive number, but value '%d' provided", s.MasterCount))
 	}
 	errs = append(errs, s.Etcd.Validate()...)
-	if es := validateProxyCIDRWhitelist(s); len(es) > 0 {
+	if es := validateProxyCIDRAllowlist(s); len(es) > 0 {
 		errs = append(errs, es...)
 	}
 	errs = append(errs, validateClusterIPFlags(s)...)
 	errs = append(errs, validateServiceNodePort(s)...)
+	errs = append(errs, validateAPIPriorityAndFairness(s)...)
 	errs = append(errs, s.SecureServing.Validate()...)
 	errs = append(errs, s.Authentication.Validate()...)
 	errs = append(errs, s.Authorization.Validate()...)
@@ -159,7 +188,8 @@ func (s *ServerRunOptions) Validate() []error {
 	errs = append(errs, s.InsecureServing.Validate()...)
 	errs = append(errs, s.APIEnablement.Validate(legacyscheme.Scheme, apiextensionsapiserver.Scheme, aggregatorscheme.Scheme)...)
 	errs = append(errs, validateTokenRequest(s)...)
-	errs = append(errs, metrics.ValidateShowHiddenMetricsVersion(s.ShowHiddenMetricsForVersion)...)
+	errs = append(errs, s.Metrics.Validate()...)
+	errs = append(errs, s.Logs.Validate()...)
 
 	return errs
 }

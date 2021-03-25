@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/flowcontrol"
+	"k8s.io/component-base/logs/logreduction"
 	internalapi "k8s.io/cri-api/pkg/apis"
 	"k8s.io/kubernetes/pkg/credentialprovider"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
@@ -33,7 +34,6 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	"k8s.io/kubernetes/pkg/kubelet/logs"
 	proberesults "k8s.io/kubernetes/pkg/kubelet/prober/results"
-	"k8s.io/kubernetes/pkg/kubelet/util/logreduction"
 )
 
 const (
@@ -79,22 +79,21 @@ func newFakeKubeRuntimeManager(runtimeService internalapi.RuntimeService, imageS
 		return nil, err
 	}
 	kubeRuntimeManager := &kubeGenericRuntimeManager{
-		recorder:            recorder,
-		cpuCFSQuota:         false,
-		cpuCFSQuotaPeriod:   metav1.Duration{Duration: time.Microsecond * 100},
-		livenessManager:     proberesults.NewManager(),
-		startupManager:      proberesults.NewManager(),
-		containerRefManager: kubecontainer.NewRefManager(),
-		machineInfo:         machineInfo,
-		osInterface:         osInterface,
-		runtimeHelper:       runtimeHelper,
-		runtimeService:      runtimeService,
-		imageService:        imageService,
-		keyring:             keyring,
-		seccompProfileRoot:  fakeSeccompProfileRoot,
-		internalLifecycle:   cm.NewFakeInternalContainerLifecycle(),
-		logReduction:        logreduction.NewLogReduction(identicalErrorDelay),
-		logManager:          logManager,
+		recorder:           recorder,
+		cpuCFSQuota:        false,
+		cpuCFSQuotaPeriod:  metav1.Duration{Duration: time.Microsecond * 100},
+		livenessManager:    proberesults.NewManager(),
+		startupManager:     proberesults.NewManager(),
+		machineInfo:        machineInfo,
+		osInterface:        osInterface,
+		runtimeHelper:      runtimeHelper,
+		runtimeService:     runtimeService,
+		imageService:       imageService,
+		keyring:            keyring,
+		seccompProfileRoot: fakeSeccompProfileRoot,
+		internalLifecycle:  cm.NewFakeInternalContainerLifecycle(),
+		logReduction:       logreduction.NewLogReduction(identicalErrorDelay),
+		logManager:         logManager,
 	}
 
 	typedVersion, err := runtimeService.Version(kubeRuntimeAPIVersion)

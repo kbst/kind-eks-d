@@ -144,6 +144,7 @@ func (w *fakeWaiter) WaitForKubeletAndFunc(f func() error) error {
 type fakeStaticPodPathManager struct {
 	kubernetesDir     string
 	kustomizeDir      string
+	patchesDir        string
 	realManifestDir   string
 	tempManifestDir   string
 	backupManifestDir string
@@ -199,6 +200,10 @@ func (spm *fakeStaticPodPathManager) KustomizeDir() string {
 	return spm.kustomizeDir
 }
 
+func (spm *fakeStaticPodPathManager) PatchesDir() string {
+	return spm.patchesDir
+}
+
 func (spm *fakeStaticPodPathManager) RealManifestPath(component string) string {
 	return constants.GetStaticPodFilepath(component, spm.realManifestDir)
 }
@@ -244,17 +249,11 @@ func (c fakeTLSEtcdClient) CheckClusterHealth() error {
 	return nil
 }
 
-func (c fakeTLSEtcdClient) GetClusterVersions() (map[string]string, error) {
-	return map[string]string{
-		"https://1.2.3.4:2379": "3.1.12",
-	}, nil
-}
-
-func (c fakeTLSEtcdClient) GetVersion() (string, error) {
-	return "3.1.12", nil
-}
-
 func (c fakeTLSEtcdClient) Sync() error { return nil }
+
+func (c fakeTLSEtcdClient) ListMembers() ([]etcdutil.Member, error) {
+	return []etcdutil.Member{}, nil
+}
 
 func (c fakeTLSEtcdClient) AddMember(name string, peerAddrs string) ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
@@ -265,10 +264,6 @@ func (c fakeTLSEtcdClient) GetMemberID(peerURL string) (uint64, error) {
 }
 
 func (c fakeTLSEtcdClient) RemoveMember(id uint64) ([]etcdutil.Member, error) {
-	return []etcdutil.Member{}, nil
-}
-
-func (c fakeTLSEtcdClient) ListMembers() ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
 }
 
@@ -289,17 +284,11 @@ func (c fakePodManifestEtcdClient) CheckClusterHealth() error {
 	return err
 }
 
-func (c fakePodManifestEtcdClient) GetClusterVersions() (map[string]string, error) {
-	return map[string]string{
-		"https://1.2.3.4:2379": "3.1.12",
-	}, nil
-}
-
-func (c fakePodManifestEtcdClient) GetVersion() (string, error) {
-	return "3.1.12", nil
-}
-
 func (c fakePodManifestEtcdClient) Sync() error { return nil }
+
+func (c fakePodManifestEtcdClient) ListMembers() ([]etcdutil.Member, error) {
+	return []etcdutil.Member{}, nil
+}
 
 func (c fakePodManifestEtcdClient) AddMember(name string, peerAddrs string) ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
@@ -310,10 +299,6 @@ func (c fakePodManifestEtcdClient) GetMemberID(peerURL string) (uint64, error) {
 }
 
 func (c fakePodManifestEtcdClient) RemoveMember(id uint64) ([]etcdutil.Member, error) {
-	return []etcdutil.Member{}, nil
-}
-
-func (c fakePodManifestEtcdClient) ListMembers() ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
 }
 
@@ -508,11 +493,11 @@ func TestStaticPodControlPlane(t *testing.T) {
 			}
 
 			// Initialize the directory with v1.7 manifests; should then be upgraded to v1.8 using the method
-			err = controlplanephase.CreateInitStaticPodManifestFiles(pathMgr.RealManifestDir(), pathMgr.KustomizeDir(), oldcfg)
+			err = controlplanephase.CreateInitStaticPodManifestFiles(pathMgr.RealManifestDir(), pathMgr.KustomizeDir(), pathMgr.PatchesDir(), oldcfg)
 			if err != nil {
 				t.Fatalf("couldn't run CreateInitStaticPodManifestFiles: %v", err)
 			}
-			err = etcdphase.CreateLocalEtcdStaticPodManifestFile(pathMgr.RealManifestDir(), pathMgr.KustomizeDir(), oldcfg.NodeRegistration.Name, &oldcfg.ClusterConfiguration, &oldcfg.LocalAPIEndpoint)
+			err = etcdphase.CreateLocalEtcdStaticPodManifestFile(pathMgr.RealManifestDir(), pathMgr.KustomizeDir(), pathMgr.PatchesDir(), oldcfg.NodeRegistration.Name, &oldcfg.ClusterConfiguration, &oldcfg.LocalAPIEndpoint)
 			if err != nil {
 				t.Fatalf("couldn't run CreateLocalEtcdStaticPodManifestFile: %v", err)
 			}
@@ -648,7 +633,7 @@ func TestCleanupDirs(t *testing.T) {
 			backupEtcdDir, cleanup := getTempDir(t, "backupEtcdDir")
 			defer cleanup()
 
-			mgr := NewKubeStaticPodPathManager(realKubernetesDir, "", tempManifestDir, backupManifestDir, backupEtcdDir, test.keepManifest, test.keepEtcd)
+			mgr := NewKubeStaticPodPathManager(realKubernetesDir, "", "", tempManifestDir, backupManifestDir, backupEtcdDir, test.keepManifest, test.keepEtcd)
 			err := mgr.CleanupDirs()
 			if err != nil {
 				t.Errorf("unexpected error cleaning up: %v", err)
@@ -963,7 +948,7 @@ func TestGetPathManagerForUpgrade(t *testing.T) {
 				os.RemoveAll(tmpdir)
 			}()
 
-			pathmgr, err := GetPathManagerForUpgrade(tmpdir, "", test.cfg, test.etcdUpgrade)
+			pathmgr, err := GetPathManagerForUpgrade(tmpdir, "", "", test.cfg, test.etcdUpgrade)
 			if err != nil {
 				t.Fatalf("unexpected error creating path manager: %v", err)
 			}
@@ -996,4 +981,37 @@ func TestGetPathManagerForUpgrade(t *testing.T) {
 		})
 	}
 
+}
+
+func TestGetEtcdImageTagFromStaticPod(t *testing.T) {
+	const expectedEtcdVersion = "3.1.12"
+	const etcdStaticPod = `apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    component: etcd
+    tier: control-plane
+  name: etcd
+  namespace: kube-system
+spec:
+  containers:
+  - name: etcd
+    image: k8s.gcr.io/etcd:` + expectedEtcdVersion
+
+	manifestsDir, err := ioutil.TempDir("", "GetEtcdImageTagFromStaticPod-test-manifests")
+	if err != nil {
+		t.Fatalf("Unable to create temporary directory: %v", err)
+	}
+	defer os.RemoveAll(manifestsDir)
+
+	if err = ioutil.WriteFile(constants.GetStaticPodFilepath(constants.Etcd, manifestsDir), []byte(etcdStaticPod), 0644); err != nil {
+		t.Fatalf("Unable to create test static pod manifest: %v", err)
+	}
+
+	got, err := GetEtcdImageTagFromStaticPod(manifestsDir)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	} else if got != expectedEtcdVersion {
+		t.Errorf("unexpected result:\n\tgot: %q\n\texpected: %q", got, expectedEtcdVersion)
+	}
 }
