@@ -8,23 +8,32 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      KIND_WORKING_DIR: "kind"
+      KIND_GIT_REF: "9a2fea6909c44421b902661b21d054ccc1d54db7"
+      IMAGE_NAME: "ghcr.io/${{ github.repository_owner }}/kind-eks-d"
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v1
+      uses: actions/checkout@v2
 
-    - name: Get kind binary
-      uses: engineerd/setup-kind@v0.5.0
+    - name: Checkout kind
+      uses: actions/checkout@v2
       with:
-        version: "v0.9.0"
-        skipClusterCreation: "true"
+        repository: kubernetes-sigs/kind
+        path: ${{ env.KIND_WORKING_DIR }}
+        ref: ${{ env.KIND_GIT_REF }}
+
+    - name: Build and install kind
+      run: sudo make install INSTALL_DIR=/usr/local/bin
+      working-directory: ${{ env.KIND_WORKING_DIR }}
 
     - name: Docker login
       uses: docker/login-action@v1
       with:
         registry: ghcr.io
-        username: kbstci
-        password: ${{ secrets.DOCKER_AUTH }}
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build image
       if: startsWith(github.ref, 'refs/tags/v') == false
@@ -46,3 +55,4 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/v')
       run: |
         make promote-image GITHUB_REF=$GITHUB_REF
+
