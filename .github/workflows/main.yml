@@ -39,6 +39,10 @@ jobs:
         username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Download source
+      if: startsWith(github.ref, 'refs/tags/v') == false
+      run: make update-src
+
     - name: Build image
       if: startsWith(github.ref, 'refs/tags/v') == false
       run: make build-image
