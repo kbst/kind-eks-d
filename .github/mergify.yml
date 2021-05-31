@@ -1,7 +1,7 @@
 pull_request_rules:
   - name: Automatic approve
     conditions:
-      - check-success=Image
+      - check-success=build
       - base=fork-master
       - label!=WIP
       - label=review
@@ -22,7 +22,7 @@ pull_request_rules:
   - name: Automatic merge
     conditions:
       - "#approved-reviews-by>=1"
-      - check-success=ci
+      - check-success=build
       - base=fork-master
       - label!=WIP
       - label=merge
