@@ -2,8 +2,13 @@ name: Image
 
 on:
   push:
+    branches:
+      - "fork-master"
+    tags:
+      - "*"
   pull_request:
-    branches: [ master ]
+    branches:
+      - fork-master
 
 jobs:
   build:
