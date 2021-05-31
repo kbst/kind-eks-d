@@ -1,0 +1,33 @@
+pull_request_rules:
+  - name: Automatic approve
+    conditions:
+      - check-success=Image
+      - base=fork-master
+      - label!=WIP
+      - label=review
+      - -body~=\[ \]
+      - -draft
+      - -conflict
+      - author=ederst
+    actions:
+      review:
+        type: APPROVE
+        message: lgtm
+      label:
+        remove:
+          - review
+        add:
+          - merge
+
+  - name: Automatic merge
+    conditions:
+      - "#approved-reviews-by>=1"
+      - check-success=ci
+      - base=fork-master
+      - label!=WIP
+      - label=merge
+      - -draft
+      - -conflict
+    actions:
+      merge:
+        method: rebase
