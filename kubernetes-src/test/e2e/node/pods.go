@@ -48,7 +48,7 @@ import (
 var _ = SIGDescribe("Pods Extended", func() {
 	f := framework.NewDefaultFramework("pods")
 
-	framework.KubeDescribe("Delete Grace Period", func() {
+	ginkgo.Describe("Delete Grace Period", func() {
 		var podClient *framework.PodClient
 		ginkgo.BeforeEach(func() {
 			podClient = f.PodClient()
@@ -63,23 +63,10 @@ var _ = SIGDescribe("Pods Extended", func() {
 			ginkgo.By("creating the pod")
 			name := "pod-submit-remove-" + string(uuid.NewUUID())
 			value := strconv.Itoa(time.Now().Nanosecond())
-			pod := &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: name,
-					Labels: map[string]string{
-						"name": "foo",
-						"time": value,
-					},
-				},
-				Spec: v1.PodSpec{
-					Containers: []v1.Container{
-						{
-							Name:  "agnhost",
-							Image: imageutils.GetE2EImage(imageutils.Agnhost),
-							Args:  []string{"pause"},
-						},
-					},
-				},
+			pod := e2epod.NewAgnhostPod(f.Namespace.Name, name, nil, nil, nil)
+			pod.ObjectMeta.Labels = map[string]string{
+				"name": "foo",
+				"time": value,
 			}
 
 			ginkgo.By("setting up selector")
@@ -158,7 +145,7 @@ var _ = SIGDescribe("Pods Extended", func() {
 		})
 	})
 
-	framework.KubeDescribe("Pods Set QOS Class", func() {
+	ginkgo.Describe("Pods Set QOS Class", func() {
 		var podClient *framework.PodClient
 		ginkgo.BeforeEach(func() {
 			podClient = f.PodClient()
@@ -168,8 +155,6 @@ var _ = SIGDescribe("Pods Extended", func() {
 			Release: v1.9
 			Testname: Pods, QOS
 			Description:  Create a Pod with CPU and Memory request and limits. Pod status MUST have QOSClass set to PodQOSGuaranteed.
-			Behaviors:
-			- pod/spec/container/resources
 		*/
 		framework.ConformanceIt("should be set on Pods with matching resource requests and limits for memory and cpu", func() {
 			ginkgo.By("creating the pod")
@@ -212,7 +197,7 @@ var _ = SIGDescribe("Pods Extended", func() {
 		})
 	})
 
-	framework.KubeDescribe("Pod Container Status", func() {
+	ginkgo.Describe("Pod Container Status", func() {
 		var podClient *framework.PodClient
 		ginkgo.BeforeEach(func() {
 			podClient = f.PodClient()
@@ -221,7 +206,7 @@ var _ = SIGDescribe("Pods Extended", func() {
 		ginkgo.It("should never report success for a pending container", func() {
 			ginkgo.By("creating pods that should always exit 1 and terminating the pod after a random delay")
 
-			var reBug88766 = regexp.MustCompile(`rootfs_linux.*kubernetes\.io~secret.*no such file or directory`)
+			var reBug88766 = regexp.MustCompile(`rootfs_linux.*kubernetes\.io~(secret|projected).*no such file or directory`)
 
 			var (
 				lock sync.Mutex
@@ -276,6 +261,7 @@ var _ = SIGDescribe("Pods Extended", func() {
 						start := time.Now()
 						created := podClient.Create(pod)
 						ch := make(chan []watch.Event)
+						waitForWatch := make(chan struct{})
 						go func() {
 							defer ginkgo.GinkgoRecover()
 							defer close(ch)
@@ -288,6 +274,7 @@ var _ = SIGDescribe("Pods Extended", func() {
 								return
 							}
 							defer w.Stop()
+							close(waitForWatch)
 							events := []watch.Event{
 								{Type: watch.Added, Object: created},
 							}
@@ -304,6 +291,10 @@ var _ = SIGDescribe("Pods Extended", func() {
 							ch <- events
 						}()
 
+						select {
+						case <-ch: // in case the goroutine above exits before establishing the watch
+						case <-waitForWatch: // when the watch is established
+						}
 						t := time.Duration(rand.Intn(delay)) * time.Millisecond
 						time.Sleep(t)
 						err := podClient.Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
@@ -450,7 +441,7 @@ var _ = SIGDescribe("Pods Extended", func() {
 
 	})
 
-	framework.KubeDescribe("Pod Container lifecycle", func() {
+	ginkgo.Describe("Pod Container lifecycle", func() {
 		var podClient *framework.PodClient
 		ginkgo.BeforeEach(func() {
 			podClient = f.PodClient()

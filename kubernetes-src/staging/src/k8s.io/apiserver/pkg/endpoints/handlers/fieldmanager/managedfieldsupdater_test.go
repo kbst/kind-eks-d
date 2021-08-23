@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package fieldmanager_test
+package fieldmanager
 
 import (
 	"reflect"
@@ -27,7 +27,7 @@ import (
 )
 
 func TestNoManagedFieldsUpdateDoesntUpdateTime(t *testing.T) {
-	f := NewTestFieldManager(schema.FromAPIVersionAndKind("v1", "Pod"), nil)
+	f := NewTestFieldManager(schema.FromAPIVersionAndKind("v1", "Pod"), false, nil)
 
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
 	if err := yaml.Unmarshal([]byte(`{

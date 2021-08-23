@@ -35,9 +35,8 @@ import (
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/volume"
 	volumetest "k8s.io/kubernetes/pkg/volume/testing"
-	"k8s.io/kubernetes/pkg/volume/util"
 	volumeutil "k8s.io/kubernetes/pkg/volume/util"
-	"k8s.io/utils/mount"
+	"k8s.io/mount-utils"
 )
 
 // Construct an instance of a plugin, by name.
@@ -193,7 +192,7 @@ func doTestPlugin(t *testing.T, config pluginTestConfig) {
 				Path: volumePath,
 			},
 		}
-		util.SetReady(metadataDir)
+		volumeutil.SetReady(metadataDir)
 	}
 
 	mounter, err := plug.(*emptyDirPlugin).newMounterInternal(volume.NewSpecFromVolume(spec),
@@ -964,6 +963,112 @@ func TestGetPageSize(t *testing.T) {
 			}
 			if err == nil && pageSize.Cmp(testCase.expectedResult) != 0 {
 				t.Errorf("%s: Unexpected result: %s, expected: %s", testCaseName, pageSize.String(), testCase.expectedResult.String())
+			}
+		})
+	}
+}
+
+func TestCalculateEmptyDirMemorySize(t *testing.T) {
+	testCases := map[string]struct {
+		pod                   *v1.Pod
+		nodeAllocatableMemory resource.Quantity
+		emptyDirSizeLimit     resource.Quantity
+		expectedResult        resource.Quantity
+		featureGateEnabled    bool
+	}{
+		"SizeMemoryBackedVolumesDisabled": {
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Resources: v1.ResourceRequirements{
+								Requests: v1.ResourceList{
+									v1.ResourceName("memory"): resource.MustParse("10Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			nodeAllocatableMemory: resource.MustParse("16Gi"),
+			emptyDirSizeLimit:     resource.MustParse("1Gi"),
+			expectedResult:        resource.MustParse("0"),
+			featureGateEnabled:    false,
+		},
+		"EmptyDirLocalLimit": {
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceName("memory"): resource.MustParse("10Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			nodeAllocatableMemory: resource.MustParse("16Gi"),
+			emptyDirSizeLimit:     resource.MustParse("1Gi"),
+			expectedResult:        resource.MustParse("1Gi"),
+			featureGateEnabled:    true,
+		},
+		"PodLocalLimit": {
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceName("memory"): resource.MustParse("10Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			nodeAllocatableMemory: resource.MustParse("16Gi"),
+			emptyDirSizeLimit:     resource.MustParse("0"),
+			expectedResult:        resource.MustParse("10Gi"),
+			featureGateEnabled:    true,
+		},
+		"NodeAllocatableLimit": {
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Resources: v1.ResourceRequirements{
+								Requests: v1.ResourceList{
+									v1.ResourceName("memory"): resource.MustParse("10Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			nodeAllocatableMemory: resource.MustParse("16Gi"),
+			emptyDirSizeLimit:     resource.MustParse("0"),
+			expectedResult:        resource.MustParse("16Gi"),
+			featureGateEnabled:    true,
+		},
+	}
+
+	for testCaseName, testCase := range testCases {
+		t.Run(testCaseName, func(t *testing.T) {
+			defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SizeMemoryBackedVolumes, testCase.featureGateEnabled)()
+			spec := &volume.Spec{
+				Volume: &v1.Volume{
+					VolumeSource: v1.VolumeSource{
+						EmptyDir: &v1.EmptyDirVolumeSource{
+							Medium:    v1.StorageMediumMemory,
+							SizeLimit: &testCase.emptyDirSizeLimit,
+						},
+					},
+				}}
+			result := calculateEmptyDirMemorySize(&testCase.nodeAllocatableMemory, spec, testCase.pod)
+			if result.Cmp(testCase.expectedResult) != 0 {
+				t.Errorf("%s: Unexpected result.  Expected %v, got %v", testCaseName, testCase.expectedResult.String(), result.String())
 			}
 		})
 	}

@@ -43,7 +43,7 @@ kube::version::get_version_vars() {
   # Disabled as we're not expanding these at runtime, but rather expecting
   # that another tool may have expanded these and rewritten the source (!)
   if [[ '%' == "%" ]]; then
-    KUBE_GIT_COMMIT='13e4240e598c165c55233b07368d8b63b07c99b6'
+    KUBE_GIT_COMMIT='6e3982d340f4461f06f3aa4472a1a92c524810db'
     KUBE_GIT_TREE_STATE="archive"
     # When a 'git archive' is exported, the 'HEAD' below will look
     # something like 'HEAD -> release-1.8, tag: v1.8.3' where then 'tag: '
@@ -108,8 +108,8 @@ kube::version::get_version_vars() {
 
       # If KUBE_GIT_VERSION is not a valid Semantic Version, then refuse to build.
       if ! [[ "${KUBE_GIT_VERSION}" =~ ^v([0-9]+)\.([0-9]+)(\.[0-9]+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-          echo "KUBE_GIT_VERSION should be a valid Semantic Version. Current value: ${KUBE_GIT_VERSION}"
-          echo "Please see more details here: https://semver.org"
+          kube::log::error "KUBE_GIT_VERSION should be a valid Semantic Version. Current value: ${KUBE_GIT_VERSION}"
+          kube::log::error "Please see more details here: https://semver.org"
           exit 1
       fi
     fi

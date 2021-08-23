@@ -26,7 +26,8 @@ import (
 var DefaultServiceNodePortRange = utilnet.PortRange{Base: 30000, Size: 2768}
 
 // DefaultServiceIPCIDR is a CIDR notation of IP range from which to allocate service cluster IPs
-var DefaultServiceIPCIDR net.IPNet = net.IPNet{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(24, 32)}
+var DefaultServiceIPCIDR = net.IPNet{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(24, 32)}
 
+// DefaultEtcdPathPrefix is the default key prefix of etcd for API Server
 const DefaultEtcdPathPrefix = "/registry"
 var DefaultProxyCIDRAllowlist IPNetSlice = NewIPNetSlice("0.0.0.0/0")

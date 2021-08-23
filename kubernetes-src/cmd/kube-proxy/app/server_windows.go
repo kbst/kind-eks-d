@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	goruntime "runtime"
 
 	// Enable pprof HTTP handlers.
 	_ "net/http/pprof"
@@ -159,7 +160,11 @@ func newProxyServer(config *proxyconfigapi.KubeProxyConfiguration, cleanupAndExi
 			return nil, fmt.Errorf("unable to create proxier: %v", err)
 		}
 	}
-
+	useEndpointSlices := utilfeature.DefaultFeatureGate.Enabled(features.WindowsEndpointSliceProxying)
+	if proxyMode == proxyModeUserspace {
+		// userspace mode doesn't support endpointslice.
+		useEndpointSlices = false
+	}
 	return &ProxyServer{
 		Client:              client,
 		EventClient:         eventClient,
@@ -174,17 +179,19 @@ func newProxyServer(config *proxyconfigapi.KubeProxyConfiguration, cleanupAndExi
 		OOMScoreAdj:         config.OOMScoreAdj,
 		ConfigSyncPeriod:    config.ConfigSyncPeriod.Duration,
 		HealthzServer:       healthzServer,
-		UseEndpointSlices:   utilfeature.DefaultFeatureGate.Enabled(features.WindowsEndpointSliceProxying),
+		UseEndpointSlices:   useEndpointSlices,
 	}, nil
 }
 
 func getProxyMode(proxyMode string, kcompat winkernel.KernelCompatTester) string {
-	if proxyMode == proxyModeUserspace {
-		return proxyModeUserspace
-	} else if proxyMode == proxyModeKernelspace {
+	if proxyMode == proxyModeKernelspace {
 		return tryWinKernelSpaceProxy(kcompat)
 	}
 	return proxyModeUserspace
+}
+
+func detectNumCPU() int {
+	return goruntime.NumCPU()
 }
 
 func tryWinKernelSpaceProxy(kcompat winkernel.KernelCompatTester) string {

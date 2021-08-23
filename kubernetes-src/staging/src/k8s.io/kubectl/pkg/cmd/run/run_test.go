@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -39,7 +40,6 @@ import (
 	"k8s.io/kubectl/pkg/cmd/delete"
 	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
-	generateversioned "k8s.io/kubectl/pkg/generate/versioned"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/kubectl/pkg/util/i18n"
 )
@@ -198,14 +198,18 @@ func TestRunArgsFollowDashRules(t *testing.T) {
 			}
 
 			deleteFlags := delete.NewDeleteFlags("to use to replace the resource.")
+			deleteOptions, err := deleteFlags.ToOptions(nil, genericclioptions.NewTestIOStreamsDiscard())
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
 			opts := &RunOptions{
 				PrintFlags:    printFlags,
-				DeleteOptions: deleteFlags.ToOptions(nil, genericclioptions.NewTestIOStreamsDiscard()),
+				DeleteOptions: deleteOptions,
 
 				IOStreams: genericclioptions.NewTestIOStreamsDiscard(),
 
-				Image:     "nginx",
-				Generator: generateversioned.RunPodV1GeneratorName,
+				Image: "nginx",
 
 				PrintObj: func(obj runtime.Object) error {
 					return printer.PrintObj(obj, os.Stdout)
@@ -228,20 +232,18 @@ func TestRunArgsFollowDashRules(t *testing.T) {
 
 func TestGenerateService(t *testing.T) {
 	tests := []struct {
-		name             string
-		port             string
-		args             []string
-		serviceGenerator string
-		params           map[string]interface{}
-		expectErr        bool
-		service          corev1.Service
-		expectPOST       bool
+		name       string
+		port       string
+		args       []string
+		params     map[string]interface{}
+		expectErr  bool
+		service    corev1.Service
+		expectPOST bool
 	}{
 		{
-			name:             "basic",
-			port:             "80",
-			args:             []string{"foo"},
-			serviceGenerator: "service/v2",
+			name: "basic",
+			port: "80",
+			args: []string{"foo"},
 			params: map[string]interface{}{
 				"name": "foo",
 			},
@@ -270,10 +272,9 @@ func TestGenerateService(t *testing.T) {
 			expectPOST: true,
 		},
 		{
-			name:             "custom labels",
-			port:             "80",
-			args:             []string{"foo"},
-			serviceGenerator: "service/v2",
+			name: "custom labels",
+			port: "80",
+			args: []string{"foo"},
 			params: map[string]interface{}{
 				"name":   "foo",
 				"labels": "app=bar",
@@ -309,10 +310,9 @@ func TestGenerateService(t *testing.T) {
 			expectPOST: false,
 		},
 		{
-			name:             "dry-run",
-			port:             "80",
-			args:             []string{"foo"},
-			serviceGenerator: "service/v2",
+			name: "dry-run",
+			port: "80",
+			args: []string{"foo"},
 			params: map[string]interface{}{
 				"name": "foo",
 			},
@@ -370,9 +370,14 @@ func TestGenerateService(t *testing.T) {
 
 			ioStreams, _, buff, _ := genericclioptions.NewTestIOStreams()
 			deleteFlags := delete.NewDeleteFlags("to use to replace the resource.")
+			deleteOptions, err := deleteFlags.ToOptions(nil, genericclioptions.NewTestIOStreamsDiscard())
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
 			opts := &RunOptions{
 				PrintFlags:    printFlags,
-				DeleteOptions: deleteFlags.ToOptions(nil, genericclioptions.NewTestIOStreamsDiscard()),
+				DeleteOptions: deleteOptions,
 
 				IOStreams: ioStreams,
 
@@ -400,7 +405,7 @@ func TestGenerateService(t *testing.T) {
 				test.params["port"] = test.port
 			}
 
-			_, err = opts.generateService(tf, cmd, test.serviceGenerator, test.params)
+			_, err = opts.generateService(tf, cmd, test.params)
 			if test.expectErr {
 				if err == nil {
 					t.Error("unexpected non-error")
@@ -527,4 +532,100 @@ func TestRunValidations(t *testing.T) {
 		})
 	}
 
+}
+
+func TestExpose(t *testing.T) {
+	tests := []struct {
+		name      string
+		podName   string
+		imageName string
+		podLabels map[string]string
+		port      int
+	}{
+		{
+			name:      "test simple expose",
+			podName:   "test-pod",
+			imageName: "test-image",
+			podLabels: map[string]string{"color": "red", "shape": "square"},
+			port:      1234,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+
+			tf := cmdtesting.NewTestFactory().WithNamespace("test")
+			defer tf.Cleanup()
+
+			codec := scheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
+			ns := scheme.Codecs.WithoutConversion()
+			tf.Client = &fake.RESTClient{
+				NegotiatedSerializer: ns,
+				Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
+					t.Logf("path: %v, method: %v", req.URL.Path, req.Method)
+					switch p, m := req.URL.Path, req.Method; {
+					case m == "POST" && p == "/namespaces/test/pods":
+						pod := &corev1.Pod{}
+						body := cmdtesting.ObjBody(codec, pod)
+						return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
+					case m == "POST" && p == "/namespaces/test/services":
+						data, err := ioutil.ReadAll(req.Body)
+						if err != nil {
+							t.Fatalf("unexpected error: %v", err)
+						}
+
+						service := &corev1.Service{}
+						if err := runtime.DecodeInto(codec, data, service); err != nil {
+							t.Fatalf("unexpected error: %v", err)
+						}
+
+						if service.ObjectMeta.Name != test.podName {
+							t.Errorf("Invalid name on service. Expected:%v, Actual:%v", test.podName, service.ObjectMeta.Name)
+						}
+
+						if !reflect.DeepEqual(service.Spec.Selector, test.podLabels) {
+							t.Errorf("Invalid selector on service. Expected:%v, Actual:%v", test.podLabels, service.Spec.Selector)
+						}
+
+						if len(service.Spec.Ports) != 1 && service.Spec.Ports[0].Port != int32(test.port) {
+							t.Errorf("Invalid port on service: %v", service.Spec.Ports)
+						}
+
+						body := cmdtesting.ObjBody(codec, service)
+
+						return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
+					default:
+						t.Errorf("unexpected request: %s %#v\n%#v", req.Method, req.URL, req)
+						return nil, fmt.Errorf("unexpected request")
+					}
+				}),
+			}
+
+			streams, _, _, bufErr := genericclioptions.NewTestIOStreams()
+			cmdutil.BehaviorOnFatal(func(str string, code int) {
+				bufErr.Write([]byte(str))
+			})
+
+			cmd := NewCmdRun(tf, streams)
+			cmd.Flags().Set("image", test.imageName)
+			cmd.Flags().Set("expose", "true")
+			cmd.Flags().Set("port", strconv.Itoa(test.port))
+
+			labels := []string{}
+			for k, v := range test.podLabels {
+				labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+			}
+			cmd.Flags().Set("labels", strings.Join(labels, ","))
+
+			cmd.Run(cmd, []string{test.podName})
+
+			if bufErr.Len() > 0 {
+				err := fmt.Errorf("%v", bufErr.String())
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+
+	}
 }

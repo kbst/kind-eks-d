@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"k8s.io/kubernetes/pkg/proxy/util"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -325,16 +323,10 @@ func NewClientWithArgs(
 			withFields(fields, "endpoint is required")
 	}
 
-	dialContext := (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		DualStack: true,
-	}).DialContext
 	client = &Client{
 		SIOEndpoint: *uri,
 		Http: http.Client{
 			Transport: &http.Transport{
-				DialContext:           util.NewSafeDialContext(dialContext),
 				TLSHandshakeTimeout: 120 * time.Second,
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: insecure,
@@ -348,7 +340,6 @@ func NewClientWithArgs(
 		pool.AppendCertsFromPEM(pemCerts)
 
 		client.Http.Transport = &http.Transport{
-			DialContext:           util.NewSafeDialContext(dialContext),
 			TLSHandshakeTimeout: 120 * time.Second,
 			TLSClientConfig: &tls.Config{
 				RootCAs:            pool,

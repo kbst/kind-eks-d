@@ -152,7 +152,7 @@ func (ss *scaleSet) gcVMSSVMCache() error {
 	return nil
 }
 
-// newVMSSVirtualMachinesCache instanciates a new VMs cache for VMs belonging to the provided VMSS.
+// newVMSSVirtualMachinesCache instantiates a new VMs cache for VMs belonging to the provided VMSS.
 func (ss *scaleSet) newVMSSVirtualMachinesCache(resourceGroupName, vmssName, cacheKey string) (*azcache.TimedCache, error) {
 	vmssVirtualMachinesCacheTTL := time.Duration(ss.Config.VmssVirtualMachinesCacheTTLInSeconds) * time.Second
 
@@ -193,6 +193,11 @@ func (ss *scaleSet) newVMSSVirtualMachinesCache(resourceGroupName, vmssName, cac
 			}
 
 			computerName := strings.ToLower(*vm.OsProfile.ComputerName)
+			if vm.NetworkProfile == nil || vm.NetworkProfile.NetworkInterfaces == nil {
+				klog.Warningf("skip caching vmssVM %s since its network profile hasn't initialized yet (probably still under creating)", computerName)
+				continue
+			}
+
 			vmssVMCacheEntry := &vmssVirtualMachinesEntry{
 				resourceGroup:  resourceGroupName,
 				vmssName:       vmssName,
