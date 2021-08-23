@@ -30,11 +30,11 @@ func TestTranslatevSphereInTreeStorageClassToCSI(t *testing.T) {
 	translator := NewvSphereCSITranslator()
 	topologySelectorTerm := v1.TopologySelectorTerm{[]v1.TopologySelectorLabelRequirement{
 		{
-			Key:    v1.LabelZoneFailureDomain,
+			Key:    v1.LabelFailureDomainBetaZone,
 			Values: []string{"zone-a"},
 		},
 		{
-			Key:    v1.LabelZoneRegion,
+			Key:    v1.LabelFailureDomainBetaRegion,
 			Values: []string{"region-a"},
 		},
 	}}
@@ -314,7 +314,7 @@ func TestTranslatevSphereInTreeInlineVolumeToCSI(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Logf("Testing %v", tc.name)
-		got, err := translator.TranslateInTreeInlineVolumeToCSI(tc.inlinevolume)
+		got, err := translator.TranslateInTreeInlineVolumeToCSI(tc.inlinevolume, "")
 		if err == nil && tc.expErr {
 			t.Errorf("Expected error, but did not get one.")
 			continue

@@ -428,7 +428,7 @@ func TestConnectWithRedirects(t *testing.T) {
 			require.NoError(t, err, "unexpected request error")
 
 			result, err := ioutil.ReadAll(resp.Body)
-			assert.Nil(t, err)
+			assert.NoError(t, err)
 			require.NoError(t, resp.Body.Close())
 			if test.expectedRedirects < len(test.redirects) {
 				// Expect the last redirect to be returned.
@@ -1106,4 +1106,22 @@ func TestPingTimeoutSeconds(t *testing.T) {
 		t.Errorf("expected %d, got %d", e, a)
 	}
 	reset()
+}
+
+func Benchmark_ParseQuotedString(b *testing.B) {
+	str := `"The quick brown" fox jumps over the lazy dog`
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		quoted, remainder, err := parseQuotedString(str)
+		if err != nil {
+			b.Errorf("Unexpected error %s", err)
+		}
+		if quoted != "The quick brown" {
+			b.Errorf("Unexpected quoted string %s", quoted)
+		}
+		if remainder != "fox jumps over the lazy dog" {
+			b.Errorf("Unexpected remainder string %s", quoted)
+		}
+	}
 }

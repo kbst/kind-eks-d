@@ -101,7 +101,6 @@ const (
 	httpdDeployment1Filename  = "httpd-deployment1.yaml.in"
 	httpdDeployment2Filename  = "httpd-deployment2.yaml.in"
 	httpdDeployment3Filename  = "httpd-deployment3.yaml.in"
-	httpdRCFilename           = "httpd-rc.yaml.in"
 	metaPattern               = `"kind":"%s","apiVersion":"%s/%s","metadata":{"name":"%s"}`
 )
 
@@ -112,12 +111,7 @@ var (
 	agnhostImage  = imageutils.GetE2EImage(imageutils.Agnhost)
 )
 
-var (
-	proxyRegexp = regexp.MustCompile("Starting to serve on 127.0.0.1:([0-9]+)")
-
-	cronJobGroupVersionResourceAlpha = schema.GroupVersionResource{Group: "batch", Version: "v2alpha1", Resource: "cronjobs"}
-	cronJobGroupVersionResourceBeta  = schema.GroupVersionResource{Group: "batch", Version: "v1beta1", Resource: "cronjobs"}
-)
+var proxyRegexp = regexp.MustCompile("Starting to serve on 127.0.0.1:([0-9]+)")
 
 var schemaFoo = []byte(`description: Foo CRD for Testing
 type: object
@@ -549,11 +543,24 @@ var _ = SIGDescribe("Kubectl client", func() {
 		})
 
 		ginkgo.It("should support inline execution and attach", func() {
+			waitForStdinContent := func(pod, content string) string {
+				var logOutput string
+				err := wait.Poll(10*time.Second, 5*time.Minute, func() (bool, error) {
+					logOutput = framework.RunKubectlOrDie(ns, "logs", pod)
+					return strings.Contains(logOutput, content), nil
+				})
+
+				gomega.Expect(err).To(gomega.BeNil(), fmt.Sprintf("unexpected error waiting for '%v' output", content))
+				return logOutput
+			}
+
 			ginkgo.By("executing a command with run and attach with stdin")
 			// We wait for a non-empty line so we know kubectl has attached
-			runOutput := framework.NewKubectlCommand(ns, "run", "run-test", "--image="+busyboxImage, "--restart=OnFailure", "--attach=true", "--stdin", "--", "sh", "-c", "while [ -z \"$s\" ]; do read s; sleep 1; done; echo read:$s && cat && echo 'stdin closed'").
+			framework.NewKubectlCommand(ns, "run", "run-test", "--image="+busyboxImage, "--restart=OnFailure", "--attach=true", "--stdin", "--", "sh", "-c", "echo -n read: && cat && echo 'stdin closed'").
 				WithStdinData("value\nabcd1234").
 				ExecOrDie(ns)
+
+			runOutput := waitForStdinContent("run-test", "stdin closed")
 			gomega.Expect(runOutput).To(gomega.ContainSubstring("read:value"))
 			gomega.Expect(runOutput).To(gomega.ContainSubstring("abcd1234"))
 			gomega.Expect(runOutput).To(gomega.ContainSubstring("stdin closed"))
@@ -566,37 +573,31 @@ var _ = SIGDescribe("Kubectl client", func() {
 			// "stdin closed", but hasn't exited yet.
 			// We wait 10 seconds before printing to give time to kubectl to attach
 			// to the container, this does not solve the race though.
-			runOutput = framework.NewKubectlCommand(ns, "run", "run-test-2", "--image="+busyboxImage, "--restart=OnFailure", "--attach=true", "--leave-stdin-open=true", "--", "sh", "-c", "sleep 10; cat && echo 'stdin closed'").
+			framework.NewKubectlCommand(ns, "run", "run-test-2", "--image="+busyboxImage, "--restart=OnFailure", "--attach=true", "--leave-stdin-open=true", "--", "sh", "-c", "cat && echo 'stdin closed'").
 				WithStdinData("abcd1234").
 				ExecOrDie(ns)
+
+			runOutput = waitForStdinContent("run-test-2", "stdin closed")
 			gomega.Expect(runOutput).ToNot(gomega.ContainSubstring("abcd1234"))
 			gomega.Expect(runOutput).To(gomega.ContainSubstring("stdin closed"))
 
 			gomega.Expect(c.CoreV1().Pods(ns).Delete(context.TODO(), "run-test-2", metav1.DeleteOptions{})).To(gomega.BeNil())
 
 			ginkgo.By("executing a command with run and attach with stdin with open stdin should remain running")
-			runOutput = framework.NewKubectlCommand(ns, "run", "run-test-3", "--image="+busyboxImage, "--restart=OnFailure", "--attach=true", "--leave-stdin-open=true", "--stdin", "--", "sh", "-c", "cat && echo 'stdin closed'").
+			framework.NewKubectlCommand(ns, "run", "run-test-3", "--image="+busyboxImage, "--restart=OnFailure", "--attach=true", "--leave-stdin-open=true", "--stdin", "--", "sh", "-c", "cat && echo 'stdin closed'").
 				WithStdinData("abcd1234\n").
 				ExecOrDie(ns)
+
+			runOutput = waitForStdinContent("run-test-3", "abcd1234")
+			gomega.Expect(runOutput).To(gomega.ContainSubstring("abcd1234"))
 			gomega.Expect(runOutput).ToNot(gomega.ContainSubstring("stdin closed"))
+
 			g := func(pods []*v1.Pod) sort.Interface { return sort.Reverse(controller.ActivePods(pods)) }
 			runTestPod, _, err := polymorphichelpers.GetFirstPod(f.ClientSet.CoreV1(), ns, "run=run-test-3", 1*time.Minute, g)
-			gomega.Expect(err).To(gomega.BeNil())
+			framework.ExpectNoError(err)
 			if !e2epod.CheckPodsRunningReady(c, ns, []string{runTestPod.Name}, time.Minute) {
 				framework.Failf("Pod %q of Job %q should still be running", runTestPod.Name, "run-test-3")
 			}
-
-			// NOTE: we cannot guarantee our output showed up in the container logs before stdin was closed, so we have
-			// to loop test.
-			err = wait.PollImmediate(time.Second, time.Minute, func() (bool, error) {
-				if !e2epod.CheckPodsRunningReady(c, ns, []string{runTestPod.Name}, 1*time.Second) {
-					framework.Failf("Pod %q of Job %q should still be running", runTestPod.Name, "run-test-3")
-				}
-				logOutput := framework.RunKubectlOrDie(ns, "logs", runTestPod.Name)
-				gomega.Expect(logOutput).ToNot(gomega.ContainSubstring("stdin closed"))
-				return strings.Contains(logOutput, "abcd1234"), nil
-			})
-			gomega.Expect(err).To(gomega.BeNil())
 
 			gomega.Expect(c.CoreV1().Pods(ns).Delete(context.TODO(), "run-test-3", metav1.DeleteOptions{})).To(gomega.BeNil())
 		})
@@ -1058,13 +1059,13 @@ metadata:
 		/*
 			Release: v1.9
 			Testname: Kubectl, cluster info
-			Description: Call kubectl to get cluster-info, output MUST contain cluster-info returned and Kubernetes Master SHOULD be running.
+			Description: Call kubectl to get cluster-info, output MUST contain cluster-info returned and Kubernetes control plane SHOULD be running.
 		*/
-		framework.ConformanceIt("should check if Kubernetes master services is included in cluster-info ", func() {
+		framework.ConformanceIt("should check if Kubernetes control plane services is included in cluster-info ", func() {
 			ginkgo.By("validating cluster-info")
 			output := framework.RunKubectlOrDie(ns, "cluster-info")
 			// Can't check exact strings due to terminal control commands (colors)
-			requiredItems := []string{"Kubernetes master", "is running at"}
+			requiredItems := []string{"Kubernetes control plane", "is running at"}
 			for _, item := range requiredItems {
 				if !strings.Contains(output, item) {
 					framework.Failf("Missing %s in kubectl cluster-info", item)
@@ -1185,7 +1186,7 @@ metadata:
 
 		ginkgo.It("should check if kubectl describe prints relevant information for cronjob", func() {
 			ginkgo.By("creating a cronjob")
-			cronjobYaml := commonutils.SubstituteImageName(string(readTestFileOrDie("busybox-cronjob.yaml")))
+			cronjobYaml := commonutils.SubstituteImageName(string(readTestFileOrDie("busybox-cronjob.yaml.in")))
 			framework.RunKubectlOrDieInput(ns, cronjobYaml, "create", "-f", "-")
 
 			ginkgo.By("waiting for cronjob to start.")
@@ -1345,7 +1346,7 @@ metadata:
 		var podYaml string
 		ginkgo.BeforeEach(func() {
 			ginkgo.By("creating the pod")
-			podYaml = commonutils.SubstituteImageName(string(readTestFileOrDie("busybox-pod.yaml")))
+			podYaml = commonutils.SubstituteImageName(string(readTestFileOrDie("busybox-pod.yaml.in")))
 			framework.RunKubectlOrDieInput(ns, podYaml, "create", "-f", "-")
 			framework.ExpectEqual(e2epod.CheckPodsRunningReady(c, ns, []string{busyboxPodName}, framework.PodStartTimeout), true)
 		})
@@ -1496,11 +1497,12 @@ metadata:
 			Description: The command 'kubectl version' MUST return the major, minor versions,  GitCommit, etc of the Client and the Server that the kubectl is configured to connect to.
 		*/
 		framework.ConformanceIt("should check is all data is printed ", func() {
-			version := framework.RunKubectlOrDie(ns, "version")
-			requiredItems := []string{"Client Version:", "Server Version:", "Major:", "Minor:", "GitCommit:"}
+			versionString := framework.RunKubectlOrDie(ns, "version")
+			// we expect following values for: Major -> digit, Minor -> numeric followed by an optional '+',  GitCommit -> alphanumeric
+			requiredItems := []string{"Client Version: ", "Server Version: "}
 			for _, item := range requiredItems {
-				if !strings.Contains(version, item) {
-					framework.Failf("Required item %s not found in %s", item, version)
+				if matched, _ := regexp.MatchString(item+`version.Info\{Major:"\d", Minor:"\d+\+?", GitVersion:"v\d\.\d+\.[\d\w\-\.\+]+", GitCommit:"[0-9a-f]+"`, versionString); !matched {
+					framework.Failf("Item %s value is not valid in %s\n", item, versionString)
 				}
 			}
 		})

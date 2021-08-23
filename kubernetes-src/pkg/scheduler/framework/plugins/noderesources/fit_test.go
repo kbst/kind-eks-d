@@ -31,7 +31,7 @@ import (
 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 var (
@@ -437,7 +437,7 @@ func TestPreFilterDisabled(t *testing.T) {
 	}
 	cycleState := framework.NewCycleState()
 	gotStatus := p.(framework.FilterPlugin).Filter(context.Background(), cycleState, pod, nodeInfo)
-	wantStatus := framework.NewStatus(framework.Error, `error reading "PreFilterNodeResourcesFit" from cycleState: not found`)
+	wantStatus := framework.AsStatus(fmt.Errorf(`error reading "PreFilterNodeResourcesFit" from cycleState: %w`, framework.ErrNotFound))
 	if !reflect.DeepEqual(gotStatus, wantStatus) {
 		t.Errorf("status does not match: %v, want: %v", gotStatus, wantStatus)
 	}
@@ -635,8 +635,10 @@ func TestValidateFitArgs(t *testing.T) {
 	}
 
 	for _, test := range argsTest {
-		if err := validateFitArgs(test.args); err != nil && !strings.Contains(err.Error(), test.expect) {
-			t.Errorf("case[%v]: error details do not include %v", test.name, err)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateFitArgs(test.args); err != nil && !strings.Contains(err.Error(), test.expect) {
+				t.Errorf("case[%v]: error details do not include %v", test.name, err)
+			}
+		})
 	}
 }

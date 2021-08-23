@@ -145,7 +145,7 @@ func TestTranslateAzureDiskInTreeStorageClassToCSI(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Logf("Testing %v", tc.name)
-		got, err := translator.TranslateInTreeInlineVolumeToCSI(tc.volume)
+		got, err := translator.TranslateInTreeInlineVolumeToCSI(tc.volume, "")
 		if err != nil && !tc.expErr {
 			t.Errorf("Did not expect error but got: %v", err)
 		}
@@ -269,7 +269,7 @@ func TestTranslateInTreeStorageClassToCSI(t *testing.T) {
 		},
 		{
 			name:       "some translated topology",
-			options:    NewStorageClass(map[string]string{}, generateToplogySelectors(v1.LabelZoneFailureDomain, []string{"foo"})),
+			options:    NewStorageClass(map[string]string{}, generateToplogySelectors(v1.LabelFailureDomainBetaZone, []string{"foo"})),
 			expOptions: NewStorageClass(map[string]string{}, generateToplogySelectors(AzureDiskTopologyKey, []string{"foo"})),
 		},
 		{

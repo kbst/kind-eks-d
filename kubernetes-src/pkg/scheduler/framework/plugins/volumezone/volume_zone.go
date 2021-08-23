@@ -22,14 +22,15 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	storage "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	storagelisters "k8s.io/client-go/listers/storage/v1"
 	volumehelpers "k8s.io/cloud-provider/volume/helpers"
+	storagehelpers "k8s.io/component-helpers/storage/volume"
 	"k8s.io/klog/v2"
-	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
-	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 // VolumeZone is a plugin that checks volume zone.
@@ -50,10 +51,10 @@ const (
 )
 
 var volumeZoneLabels = sets.NewString(
-	v1.LabelZoneFailureDomain,
-	v1.LabelZoneRegion,
-	v1.LabelZoneFailureDomainStable,
-	v1.LabelZoneRegionStable,
+	v1.LabelFailureDomainBetaZone,
+	v1.LabelFailureDomainBetaRegion,
+	v1.LabelTopologyZone,
+	v1.LabelTopologyRegion,
 )
 
 // Name returns name of the plugin. It is used in logs, etc.
@@ -108,11 +109,11 @@ func (pl *VolumeZone) Filter(ctx context.Context, _ *framework.CycleState, pod *
 		}
 		pvcName := volume.PersistentVolumeClaim.ClaimName
 		if pvcName == "" {
-			return framework.NewStatus(framework.Error, "PersistentVolumeClaim had no name")
+			return framework.NewStatus(framework.UnschedulableAndUnresolvable, "PersistentVolumeClaim had no name")
 		}
 		pvc, err := pl.pvcLister.PersistentVolumeClaims(pod.Namespace).Get(pvcName)
-		if err != nil {
-			return framework.NewStatus(framework.Error, err.Error())
+		if s := getErrorAsStatus(err); !s.IsSuccess() {
+			return s
 		}
 
 		if pvc == nil {
@@ -121,30 +122,29 @@ func (pl *VolumeZone) Filter(ctx context.Context, _ *framework.CycleState, pod *
 
 		pvName := pvc.Spec.VolumeName
 		if pvName == "" {
-			scName := v1helper.GetPersistentVolumeClaimClass(pvc)
+			scName := storagehelpers.GetPersistentVolumeClaimClass(pvc)
 			if len(scName) == 0 {
-				return framework.NewStatus(framework.Error, fmt.Sprint("PersistentVolumeClaim had no pv name and storageClass name"))
+				return framework.NewStatus(framework.UnschedulableAndUnresolvable, "PersistentVolumeClaim had no pv name and storageClass name")
 			}
 
-			class, _ := pl.scLister.Get(scName)
-			if class == nil {
-				return framework.NewStatus(framework.Error, fmt.Sprintf("StorageClass %q claimed by PersistentVolumeClaim %q not found", scName, pvcName))
-
+			class, err := pl.scLister.Get(scName)
+			if s := getErrorAsStatus(err); !s.IsSuccess() {
+				return s
 			}
 			if class.VolumeBindingMode == nil {
-				return framework.NewStatus(framework.Error, fmt.Sprintf("VolumeBindingMode not set for StorageClass %q", scName))
+				return framework.NewStatus(framework.UnschedulableAndUnresolvable, fmt.Sprintf("VolumeBindingMode not set for StorageClass %q", scName))
 			}
 			if *class.VolumeBindingMode == storage.VolumeBindingWaitForFirstConsumer {
 				// Skip unbound volumes
 				continue
 			}
 
-			return framework.NewStatus(framework.Error, fmt.Sprint("PersistentVolume had no name"))
+			return framework.NewStatus(framework.UnschedulableAndUnresolvable, "PersistentVolume had no name")
 		}
 
 		pv, err := pl.pvLister.Get(pvName)
-		if err != nil {
-			return framework.NewStatus(framework.Error, err.Error())
+		if s := getErrorAsStatus(err); !s.IsSuccess() {
+			return s
 		}
 
 		if pv == nil {
@@ -158,7 +158,7 @@ func (pl *VolumeZone) Filter(ctx context.Context, _ *framework.CycleState, pod *
 			nodeV, _ := nodeConstraints[k]
 			volumeVSet, err := volumehelpers.LabelZonesToSet(v)
 			if err != nil {
-				klog.Warningf("Failed to parse label for %q: %q. Ignoring the label. err=%v. ", k, v, err)
+				klog.InfoS("Failed to parse label, ignoring the label", "label", fmt.Sprintf("%s:%s", k, v), "err", err)
 				continue
 			}
 
@@ -171,8 +171,18 @@ func (pl *VolumeZone) Filter(ctx context.Context, _ *framework.CycleState, pod *
 	return nil
 }
 
+func getErrorAsStatus(err error) *framework.Status {
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return framework.NewStatus(framework.UnschedulableAndUnresolvable, err.Error())
+		}
+		return framework.AsStatus(err)
+	}
+	return nil
+}
+
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, handle framework.FrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	informerFactory := handle.SharedInformerFactory()
 	pvLister := informerFactory.Core().V1().PersistentVolumes().Lister()
 	pvcLister := informerFactory.Core().V1().PersistentVolumeClaims().Lister()

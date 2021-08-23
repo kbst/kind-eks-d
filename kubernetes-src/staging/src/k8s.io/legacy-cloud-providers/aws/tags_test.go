@@ -19,11 +19,11 @@ limitations under the License.
 package aws
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFilterTags(t *testing.T) {

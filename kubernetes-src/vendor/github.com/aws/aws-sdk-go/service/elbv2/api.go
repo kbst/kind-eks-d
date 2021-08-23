@@ -155,8 +155,8 @@ func (c *ELBV2) AddTagsRequest(input *AddTagsInput) (req *request.Request, outpu
 // AddTags API operation for Elastic Load Balancing.
 //
 // Adds the specified tags to the specified Elastic Load Balancing resource.
-// You can tag your Application Load Balancers, Network Load Balancers, and
-// your target groups.
+// You can tag your Application Load Balancers, Network Load Balancers, target
+// groups, listeners, and rules.
 //
 // Each tag consists of a key and an optional value. If a resource already has
 // a tag with the same key, AddTags updates its value.
@@ -327,6 +327,9 @@ func (c *ELBV2) CreateListenerRequest(input *CreateListenerInput) (req *request.
 //
 //   * ErrCodeALPNPolicyNotSupportedException "ALPNPolicyNotFound"
 //   The specified ALPN policy is not supported.
+//
+//   * ErrCodeTooManyTagsException "TooManyTags"
+//   You've reached the limit on the number of tags per load balancer.
 //
 // See also, https://docs.aws.amazon.com/goto/WebAPI/elasticloadbalancingv2-2015-12-01/CreateListener
 func (c *ELBV2) CreateListener(input *CreateListenerInput) (*CreateListenerOutput, error) {
@@ -597,6 +600,9 @@ func (c *ELBV2) CreateRuleRequest(input *CreateRuleInput) (req *request.Request,
 //   across all listeners. If a target group is used by multiple actions for a
 //   load balancer, it is counted as only one use.
 //
+//   * ErrCodeTooManyTagsException "TooManyTags"
+//   You've reached the limit on the number of tags per load balancer.
+//
 // See also, https://docs.aws.amazon.com/goto/WebAPI/elasticloadbalancingv2-2015-12-01/CreateRule
 func (c *ELBV2) CreateRule(input *CreateRuleInput) (*CreateRuleOutput, error) {
 	req, out := c.CreateRuleRequest(input)
@@ -700,6 +706,9 @@ func (c *ELBV2) CreateTargetGroupRequest(input *CreateTargetGroupInput) (req *re
 //
 //   * ErrCodeInvalidConfigurationRequestException "InvalidConfigurationRequest"
 //   The requested configuration is not valid.
+//
+//   * ErrCodeTooManyTagsException "TooManyTags"
+//   You've reached the limit on the number of tags per load balancer.
 //
 // See also, https://docs.aws.amazon.com/goto/WebAPI/elasticloadbalancingv2-2015-12-01/CreateTargetGroup
 func (c *ELBV2) CreateTargetGroup(input *CreateTargetGroupInput) (*CreateTargetGroupOutput, error) {
@@ -1907,9 +1916,9 @@ func (c *ELBV2) DescribeTagsRequest(input *DescribeTagsInput) (req *request.Requ
 
 // DescribeTags API operation for Elastic Load Balancing.
 //
-// Describes the tags for the specified resources. You can describe the tags
-// for one or more Application Load Balancers, Network Load Balancers, and target
-// groups.
+// Describes the tags for the specified Elastic Load Balancing resources. You
+// can describe the tags for one or more Application Load Balancers, Network
+// Load Balancers, target groups, listeners, or rules.
 //
 // Returns awserr.Error for service API and SDK errors. Use runtime type assertions
 // with awserr.Error's Code and Message methods to get detailed information about
@@ -3022,7 +3031,9 @@ func (c *ELBV2) RemoveTagsRequest(input *RemoveTagsInput) (req *request.Request,
 
 // RemoveTags API operation for Elastic Load Balancing.
 //
-// Removes the specified tags from the specified Elastic Load Balancing resource.
+// Removes the specified tags from the specified Elastic Load Balancing resources.
+// You can remove the tags for one or more Application Load Balancers, Network
+// Load Balancers, target groups, listeners, or rules.
 //
 // To list the current tags for your resources, use DescribeTags.
 //
@@ -4186,25 +4197,7 @@ type CreateListenerInput struct {
 	// To create a certificate list for the listener, use AddListenerCertificates.
 	Certificates []*Certificate `type:"list"`
 
-	// The actions for the default rule. The rule must include one forward action
-	// or one or more fixed-response actions.
-	//
-	// If the action type is forward, you specify one or more target groups. The
-	// protocol of the target group must be HTTP or HTTPS for an Application Load
-	// Balancer. The protocol of the target group must be TCP, TLS, UDP, or TCP_UDP
-	// for a Network Load Balancer.
-	//
-	// [HTTPS listeners] If the action type is authenticate-oidc, you authenticate
-	// users through an identity provider that is OpenID Connect (OIDC) compliant.
-	//
-	// [HTTPS listeners] If the action type is authenticate-cognito, you authenticate
-	// users through the user pools supported by Amazon Cognito.
-	//
-	// [Application Load Balancer] If the action type is redirect, you redirect
-	// specified client requests from one URL to another.
-	//
-	// [Application Load Balancer] If the action type is fixed-response, you drop
-	// specified client requests and return a custom HTTP response.
+	// The actions for the default rule.
 	//
 	// DefaultActions is a required field
 	DefaultActions []*Action `type:"list" required:"true"`
@@ -4251,6 +4244,9 @@ type CreateListenerInput struct {
 	// in the Application Load Balancers Guide and Security Policies (https://docs.aws.amazon.com/elasticloadbalancing/latest/network/create-tls-listener.html#describe-ssl-policies)
 	// in the Network Load Balancers Guide.
 	SslPolicy *string `type:"string"`
+
+	// The tags to assign to the listener.
+	Tags []*Tag `min:"1" type:"list"`
 }
 
 // String returns the string representation
@@ -4281,6 +4277,9 @@ func (s *CreateListenerInput) Validate() error {
 	if s.Protocol == nil {
 		invalidParams.Add(request.NewErrParamRequired("Protocol"))
 	}
+	if s.Tags != nil && len(s.Tags) < 1 {
+		invalidParams.Add(request.NewErrParamMinLen("Tags", 1))
+	}
 	if s.DefaultActions != nil {
 		for i, v := range s.DefaultActions {
 			if v == nil {
@@ -4288,6 +4287,16 @@ func (s *CreateListenerInput) Validate() error {
 			}
 			if err := v.Validate(); err != nil {
 				invalidParams.AddNested(fmt.Sprintf("%s[%v]", "DefaultActions", i), err.(request.ErrInvalidParams))
+			}
+		}
+	}
+	if s.Tags != nil {
+		for i, v := range s.Tags {
+			if v == nil {
+				continue
+			}
+			if err := v.Validate(); err != nil {
+				invalidParams.AddNested(fmt.Sprintf("%s[%v]", "Tags", i), err.(request.ErrInvalidParams))
 			}
 		}
 	}
@@ -4337,6 +4346,12 @@ func (s *CreateListenerInput) SetProtocol(v string) *CreateListenerInput {
 // SetSslPolicy sets the SslPolicy field's value.
 func (s *CreateListenerInput) SetSslPolicy(v string) *CreateListenerInput {
 	s.SslPolicy = &v
+	return s
+}
+
+// SetTags sets the Tags field's value.
+func (s *CreateListenerInput) SetTags(v []*Tag) *CreateListenerInput {
+	s.Tags = v
 	return s
 }
 
@@ -4435,7 +4450,7 @@ type CreateLoadBalancerInput struct {
 	// Zones.
 	Subnets []*string `type:"list"`
 
-	// One or more tags to assign to the load balancer.
+	// The tags to assign to the load balancer.
 	Tags []*Tag `min:"1" type:"list"`
 
 	// The type of load balancer. The default is application.
@@ -4558,34 +4573,12 @@ func (s *CreateLoadBalancerOutput) SetLoadBalancers(v []*LoadBalancer) *CreateLo
 type CreateRuleInput struct {
 	_ struct{} `type:"structure"`
 
-	// The actions. Each rule must include exactly one of the following types of
-	// actions: forward, fixed-response, or redirect, and it must be the last action
-	// to be performed.
-	//
-	// If the action type is forward, you specify one or more target groups. The
-	// protocol of the target group must be HTTP or HTTPS for an Application Load
-	// Balancer. The protocol of the target group must be TCP, TLS, UDP, or TCP_UDP
-	// for a Network Load Balancer.
-	//
-	// [HTTPS listeners] If the action type is authenticate-oidc, you authenticate
-	// users through an identity provider that is OpenID Connect (OIDC) compliant.
-	//
-	// [HTTPS listeners] If the action type is authenticate-cognito, you authenticate
-	// users through the user pools supported by Amazon Cognito.
-	//
-	// [Application Load Balancer] If the action type is redirect, you redirect
-	// specified client requests from one URL to another.
-	//
-	// [Application Load Balancer] If the action type is fixed-response, you drop
-	// specified client requests and return a custom HTTP response.
+	// The actions.
 	//
 	// Actions is a required field
 	Actions []*Action `type:"list" required:"true"`
 
-	// The conditions. Each rule can optionally include up to one of each of the
-	// following conditions: http-request-method, host-header, path-pattern, and
-	// source-ip. Each rule can also optionally include one or more of each of the
-	// following conditions: http-header and query-string.
+	// The conditions.
 	//
 	// Conditions is a required field
 	Conditions []*RuleCondition `type:"list" required:"true"`
@@ -4599,6 +4592,9 @@ type CreateRuleInput struct {
 	//
 	// Priority is a required field
 	Priority *int64 `min:"1" type:"integer" required:"true"`
+
+	// The tags to assign to the rule.
+	Tags []*Tag `min:"1" type:"list"`
 }
 
 // String returns the string representation
@@ -4629,6 +4625,9 @@ func (s *CreateRuleInput) Validate() error {
 	if s.Priority != nil && *s.Priority < 1 {
 		invalidParams.Add(request.NewErrParamMinValue("Priority", 1))
 	}
+	if s.Tags != nil && len(s.Tags) < 1 {
+		invalidParams.Add(request.NewErrParamMinLen("Tags", 1))
+	}
 	if s.Actions != nil {
 		for i, v := range s.Actions {
 			if v == nil {
@@ -4636,6 +4635,16 @@ func (s *CreateRuleInput) Validate() error {
 			}
 			if err := v.Validate(); err != nil {
 				invalidParams.AddNested(fmt.Sprintf("%s[%v]", "Actions", i), err.(request.ErrInvalidParams))
+			}
+		}
+	}
+	if s.Tags != nil {
+		for i, v := range s.Tags {
+			if v == nil {
+				continue
+			}
+			if err := v.Validate(); err != nil {
+				invalidParams.AddNested(fmt.Sprintf("%s[%v]", "Tags", i), err.(request.ErrInvalidParams))
 			}
 		}
 	}
@@ -4667,6 +4676,12 @@ func (s *CreateRuleInput) SetListenerArn(v string) *CreateRuleInput {
 // SetPriority sets the Priority field's value.
 func (s *CreateRuleInput) SetPriority(v int64) *CreateRuleInput {
 	s.Priority = &v
+	return s
+}
+
+// SetTags sets the Tags field's value.
+func (s *CreateRuleInput) SetTags(v []*Tag) *CreateRuleInput {
+	s.Tags = v
 	return s
 }
 
@@ -4708,8 +4723,12 @@ type CreateTargetGroupInput struct {
 	// lambda, the default is 35 seconds.
 	HealthCheckIntervalSeconds *int64 `min:"5" type:"integer"`
 
-	// [HTTP/HTTPS health checks] The ping path that is the destination on the targets
-	// for health checks. The default is /.
+	// [HTTP/HTTPS health checks] The destination for health checks on the targets.
+	//
+	// [HTTP1 or HTTP2 protocol version] The ping path. The default is /.
+	//
+	// [GRPC protocol version] The path of a custom health check method with the
+	// format /package.service/method. The default is /AWS.ALB/healthcheck.
 	HealthCheckPath *string `min:"1" type:"string"`
 
 	// The port the load balancer uses when performing health checks on targets.
@@ -4738,8 +4757,8 @@ type CreateTargetGroupInput struct {
 	// the default is 3. If the target type is lambda, the default is 5.
 	HealthyThresholdCount *int64 `min:"2" type:"integer"`
 
-	// [HTTP/HTTPS health checks] The HTTP codes to use when checking for a successful
-	// response from a target.
+	// [HTTP/HTTPS health checks] The HTTP or gRPC codes to use when checking for
+	// a successful response from a target.
 	Matcher *Matcher `type:"structure"`
 
 	// The name of the target group.
@@ -4762,6 +4781,14 @@ type CreateTargetGroupInput struct {
 	// must be associated with a TCP_UDP target group. If the target is a Lambda
 	// function, this parameter does not apply.
 	Protocol *string `type:"string" enum:"ProtocolEnum"`
+
+	// [HTTP/HTTPS protocol] The protocol version. Specify GRPC to send requests
+	// to targets using gRPC. Specify HTTP2 to send requests to targets using HTTP/2.
+	// The default is HTTP1, which sends requests to targets using HTTP/1.1.
+	ProtocolVersion *string `type:"string"`
+
+	// The tags to assign to the target group.
+	Tags []*Tag `min:"1" type:"list"`
 
 	// The type of target that you must specify when registering targets with this
 	// target group. You can't specify targets for a target group using more than
@@ -4822,12 +4849,20 @@ func (s *CreateTargetGroupInput) Validate() error {
 	if s.Port != nil && *s.Port < 1 {
 		invalidParams.Add(request.NewErrParamMinValue("Port", 1))
 	}
+	if s.Tags != nil && len(s.Tags) < 1 {
+		invalidParams.Add(request.NewErrParamMinLen("Tags", 1))
+	}
 	if s.UnhealthyThresholdCount != nil && *s.UnhealthyThresholdCount < 2 {
 		invalidParams.Add(request.NewErrParamMinValue("UnhealthyThresholdCount", 2))
 	}
-	if s.Matcher != nil {
-		if err := s.Matcher.Validate(); err != nil {
-			invalidParams.AddNested("Matcher", err.(request.ErrInvalidParams))
+	if s.Tags != nil {
+		for i, v := range s.Tags {
+			if v == nil {
+				continue
+			}
+			if err := v.Validate(); err != nil {
+				invalidParams.AddNested(fmt.Sprintf("%s[%v]", "Tags", i), err.(request.ErrInvalidParams))
+			}
 		}
 	}
 
@@ -4900,6 +4935,18 @@ func (s *CreateTargetGroupInput) SetPort(v int64) *CreateTargetGroupInput {
 // SetProtocol sets the Protocol field's value.
 func (s *CreateTargetGroupInput) SetProtocol(v string) *CreateTargetGroupInput {
 	s.Protocol = &v
+	return s
+}
+
+// SetProtocolVersion sets the ProtocolVersion field's value.
+func (s *CreateTargetGroupInput) SetProtocolVersion(v string) *CreateTargetGroupInput {
+	s.ProtocolVersion = &v
+	return s
+}
+
+// SetTags sets the Tags field's value.
+func (s *CreateTargetGroupInput) SetTags(v []*Tag) *CreateTargetGroupInput {
+	s.Tags = v
 	return s
 }
 
@@ -6801,20 +6848,23 @@ func (s *LoadBalancerState) SetReason(v string) *LoadBalancerState {
 	return s
 }
 
-// Information to use when checking for a successful response from a target.
+// The codes to use when checking for a successful response from a target. If
+// the protocol version is gRPC, these are gRPC codes. Otherwise, these are
+// HTTP codes.
 type Matcher struct {
 	_ struct{} `type:"structure"`
 
-	// The HTTP codes.
-	//
+	// You can specify values between 0 and 99. You can specify multiple values
+	// (for example, "0,1") or a range of values (for example, "0-5"). The default
+	// value is 12.
+	GrpcCode *string `type:"string"`
+
 	// For Application Load Balancers, you can specify values between 200 and 499,
 	// and the default value is 200. You can specify multiple values (for example,
 	// "200,202") or a range of values (for example, "200-299").
 	//
-	// For Network Load Balancers, this is 200–399.
-	//
-	// HttpCode is a required field
-	HttpCode *string `type:"string" required:"true"`
+	// For Network Load Balancers, this is "200–399".
+	HttpCode *string `type:"string"`
 }
 
 // String returns the string representation
@@ -6827,17 +6877,10 @@ func (s Matcher) GoString() string {
 	return s.String()
 }
 
-// Validate inspects the fields of the type to determine if they are valid.
-func (s *Matcher) Validate() error {
-	invalidParams := request.ErrInvalidParams{Context: "Matcher"}
-	if s.HttpCode == nil {
-		invalidParams.Add(request.NewErrParamRequired("HttpCode"))
-	}
-
-	if invalidParams.Len() > 0 {
-		return invalidParams
-	}
-	return nil
+// SetGrpcCode sets the GrpcCode field's value.
+func (s *Matcher) SetGrpcCode(v string) *Matcher {
+	s.GrpcCode = &v
+	return s
 }
 
 // SetHttpCode sets the HttpCode field's value.
@@ -6873,25 +6916,7 @@ type ModifyListenerInput struct {
 	// To create a certificate list, use AddListenerCertificates.
 	Certificates []*Certificate `type:"list"`
 
-	// The actions for the default rule. The rule must include one forward action
-	// or one or more fixed-response actions.
-	//
-	// If the action type is forward, you specify one or more target groups. The
-	// protocol of the target group must be HTTP or HTTPS for an Application Load
-	// Balancer. The protocol of the target group must be TCP, TLS, UDP, or TCP_UDP
-	// for a Network Load Balancer.
-	//
-	// [HTTPS listeners] If the action type is authenticate-oidc, you authenticate
-	// users through an identity provider that is OpenID Connect (OIDC) compliant.
-	//
-	// [HTTPS listeners] If the action type is authenticate-cognito, you authenticate
-	// users through the user pools supported by Amazon Cognito.
-	//
-	// [Application Load Balancer] If the action type is redirect, you redirect
-	// specified client requests from one URL to another.
-	//
-	// [Application Load Balancer] If the action type is fixed-response, you drop
-	// specified client requests and return a custom HTTP response.
+	// The actions for the default rule.
 	DefaultActions []*Action `type:"list"`
 
 	// The Amazon Resource Name (ARN) of the listener.
@@ -7113,31 +7138,10 @@ func (s *ModifyLoadBalancerAttributesOutput) SetAttributes(v []*LoadBalancerAttr
 type ModifyRuleInput struct {
 	_ struct{} `type:"structure"`
 
-	// The actions. Each rule must include exactly one of the following types of
-	// actions: forward, fixed-response, or redirect, and it must be the last action
-	// to be performed.
-	//
-	// If the action type is forward, you specify one or more target groups. The
-	// protocol of the target group must be HTTP or HTTPS for an Application Load
-	// Balancer. The protocol of the target group must be TCP, TLS, UDP, or TCP_UDP
-	// for a Network Load Balancer.
-	//
-	// [HTTPS listeners] If the action type is authenticate-oidc, you authenticate
-	// users through an identity provider that is OpenID Connect (OIDC) compliant.
-	//
-	// [HTTPS listeners] If the action type is authenticate-cognito, you authenticate
-	// users through the user pools supported by Amazon Cognito.
-	//
-	// [Application Load Balancer] If the action type is redirect, you redirect
-	// specified client requests from one URL to another.
-	//
-	// [Application Load Balancer] If the action type is fixed-response, you drop
-	// specified client requests and return a custom HTTP response.
+	// The actions.
 	Actions []*Action `type:"list"`
 
-	// The conditions. Each rule can include zero or one of the following conditions:
-	// http-request-method, host-header, path-pattern, and source-ip, and zero or
-	// more of the following conditions: http-header and query-string.
+	// The conditions.
 	Conditions []*RuleCondition `type:"list"`
 
 	// The Amazon Resource Name (ARN) of the rule.
@@ -7302,14 +7306,18 @@ type ModifyTargetGroupInput struct {
 	HealthCheckEnabled *bool `type:"boolean"`
 
 	// The approximate amount of time, in seconds, between health checks of an individual
-	// target. For Application Load Balancers, the range is 5 to 300 seconds. For
-	// Network Load Balancers, the supported values are 10 or 30 seconds.
+	// target. For HTTP and HTTPS health checks, the range is 5 to 300 seconds.
+	// For TPC health checks, the supported values are 10 or 30 seconds.
 	//
 	// With Network Load Balancers, you can't modify this setting.
 	HealthCheckIntervalSeconds *int64 `min:"5" type:"integer"`
 
-	// [HTTP/HTTPS health checks] The ping path that is the destination for the
-	// health check request.
+	// [HTTP/HTTPS health checks] The destination for health checks on the targets.
+	//
+	// [HTTP1 or HTTP2 protocol version] The ping path. The default is /.
+	//
+	// [GRPC protocol version] The path of a custom health check method with the
+	// format /package.service/method. The default is /AWS.ALB/healthcheck.
 	HealthCheckPath *string `min:"1" type:"string"`
 
 	// The port the load balancer uses when performing health checks on targets.
@@ -7333,10 +7341,8 @@ type ModifyTargetGroupInput struct {
 	// an unhealthy target healthy.
 	HealthyThresholdCount *int64 `min:"2" type:"integer"`
 
-	// [HTTP/HTTPS health checks] The HTTP codes to use when checking for a successful
-	// response from a target. The possible values are from 200 to 499. You can
-	// specify multiple values (for example, "200,202") or a range of values (for
-	// example, "200-299"). The default is 200.
+	// [HTTP/HTTPS health checks] The HTTP or gRPC codes to use when checking for
+	// a successful response from a target.
 	//
 	// With Network Load Balancers, you can't modify this setting.
 	Matcher *Matcher `type:"structure"`
@@ -7347,8 +7353,8 @@ type ModifyTargetGroupInput struct {
 	TargetGroupArn *string `type:"string" required:"true"`
 
 	// The number of consecutive health check failures required before considering
-	// the target unhealthy. For Network Load Balancers, this value must be the
-	// same as the healthy threshold count.
+	// the target unhealthy. For target groups with a protocol of TCP or TLS, this
+	// value must be the same as the healthy threshold count.
 	UnhealthyThresholdCount *int64 `min:"2" type:"integer"`
 }
 
@@ -7382,11 +7388,6 @@ func (s *ModifyTargetGroupInput) Validate() error {
 	}
 	if s.UnhealthyThresholdCount != nil && *s.UnhealthyThresholdCount < 2 {
 		invalidParams.Add(request.NewErrParamMinValue("UnhealthyThresholdCount", 2))
-	}
-	if s.Matcher != nil {
-		if err := s.Matcher.Validate(); err != nil {
-			invalidParams.AddNested("Matcher", err.(request.ErrInvalidParams))
-		}
 	}
 
 	if invalidParams.Len() > 0 {
@@ -7706,10 +7707,6 @@ type RegisterTargetsInput struct {
 	TargetGroupArn *string `type:"string" required:"true"`
 
 	// The targets.
-	//
-	// To register a target by instance ID, specify the instance ID. To register
-	// a target by IP address, specify the IP address. To register a Lambda function,
-	// specify the ARN of the Lambda function.
 	//
 	// Targets is a required field
 	Targets []*TargetDescription `type:"list" required:"true"`
@@ -8761,7 +8758,7 @@ type TargetGroup struct {
 	// target.
 	HealthCheckIntervalSeconds *int64 `min:"5" type:"integer"`
 
-	// The destination for the health check request.
+	// The destination for health checks on the targets.
 	HealthCheckPath *string `min:"1" type:"string"`
 
 	// The port to use to connect with the target.
@@ -8782,7 +8779,8 @@ type TargetGroup struct {
 	// to this target group.
 	LoadBalancerArns []*string `type:"list"`
 
-	// The HTTP codes to use when checking for a successful response from a target.
+	// The HTTP or gRPC codes to use when checking for a successful response from
+	// a target.
 	Matcher *Matcher `type:"structure"`
 
 	// The port on which the targets are listening. Not used if the target is a
@@ -8791,6 +8789,10 @@ type TargetGroup struct {
 
 	// The protocol to use for routing traffic to the targets.
 	Protocol *string `type:"string" enum:"ProtocolEnum"`
+
+	// [HTTP/HTTPS protocol] The protocol version. The possible values are GRPC,
+	// HTTP1, and HTTP2.
+	ProtocolVersion *string `type:"string"`
 
 	// The Amazon Resource Name (ARN) of the target group.
 	TargetGroupArn *string `type:"string"`
@@ -8884,6 +8886,12 @@ func (s *TargetGroup) SetPort(v int64) *TargetGroup {
 // SetProtocol sets the Protocol field's value.
 func (s *TargetGroup) SetProtocol(v string) *TargetGroup {
 	s.Protocol = &v
+	return s
+}
+
+// SetProtocolVersion sets the ProtocolVersion field's value.
+func (s *TargetGroup) SetProtocolVersion(v string) *TargetGroup {
+	s.ProtocolVersion = &v
 	return s
 }
 

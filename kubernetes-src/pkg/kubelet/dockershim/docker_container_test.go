@@ -35,6 +35,11 @@ import (
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
 )
 
+const (
+	sandboxID   = "sandboxid"
+	containerID = "containerid"
+)
+
 // A helper to create a basic config.
 func makeContainerConfig(sConfig *runtimeapi.PodSandboxConfig, name, image string, attempt uint32, labels, annotations map[string]string) *runtimeapi.ContainerConfig {
 	return &runtimeapi.ContainerConfig{
@@ -177,9 +182,6 @@ func TestContainerStatus(t *testing.T) {
 	imageName := "iamimage"
 	config := makeContainerConfig(sConfig, "pause", imageName, 0, labels, annotations)
 
-	var defaultTime time.Time
-	dt := defaultTime.UnixNano()
-	ct, st, ft := dt, dt, dt
 	state := runtimeapi.ContainerState_CONTAINER_CREATED
 	imageRef := DockerImageIDPrefix + imageName
 	// The following variables are not set in FakeDockerClient.
@@ -188,9 +190,6 @@ func TestContainerStatus(t *testing.T) {
 
 	expected := &runtimeapi.ContainerStatus{
 		State:       state,
-		CreatedAt:   ct,
-		StartedAt:   st,
-		FinishedAt:  ft,
 		Metadata:    config.Metadata,
 		Image:       config.Image,
 		ImageRef:    imageRef,
@@ -207,9 +206,8 @@ func TestContainerStatus(t *testing.T) {
 	// Create the container.
 	fClock.SetTime(time.Now().Add(-1 * time.Hour))
 	expected.CreatedAt = fClock.Now().UnixNano()
-	const sandboxId = "sandboxid"
 
-	req := &runtimeapi.CreateContainerRequest{PodSandboxId: sandboxId, Config: config, SandboxConfig: sConfig}
+	req := &runtimeapi.CreateContainerRequest{PodSandboxId: sandboxID, Config: config, SandboxConfig: sConfig}
 	createResp, err := ds.CreateContainer(getTestCTX(), req)
 	require.NoError(t, err)
 	id := createResp.ContainerId
@@ -218,7 +216,7 @@ func TestContainerStatus(t *testing.T) {
 	c, err := fDocker.InspectContainer(id)
 	require.NoError(t, err)
 	assert.Equal(t, c.Config.Labels[containerTypeLabelKey], containerTypeLabelContainer)
-	assert.Equal(t, c.Config.Labels[sandboxIDLabelKey], sandboxId)
+	assert.Equal(t, c.Config.Labels[sandboxIDLabelKey], sandboxID)
 
 	// Set the id manually since we don't know the id until it's created.
 	expected.Id = id
@@ -269,8 +267,7 @@ func TestContainerLogPath(t *testing.T) {
 	config := makeContainerConfig(sConfig, "pause", "iamimage", 0, nil, nil)
 	config.LogPath = containerLogPath
 
-	const sandboxId = "sandboxid"
-	req := &runtimeapi.CreateContainerRequest{PodSandboxId: sandboxId, Config: config, SandboxConfig: sConfig}
+	req := &runtimeapi.CreateContainerRequest{PodSandboxId: sandboxID, Config: config, SandboxConfig: sConfig}
 	createResp, err := ds.CreateContainer(getTestCTX(), req)
 	require.NoError(t, err)
 	id := createResp.ContainerId
@@ -310,11 +307,9 @@ func TestContainerCreationConflict(t *testing.T) {
 	sConfig := makeSandboxConfig("foo", "bar", "1", 0)
 	config := makeContainerConfig(sConfig, "pause", "iamimage", 0, map[string]string{}, map[string]string{})
 	containerName := makeContainerName(sConfig, config)
-	const sandboxId = "sandboxid"
-	const containerId = "containerid"
-	conflictError := fmt.Errorf("Error response from daemon: Conflict. The name \"/%s\" is already in use by container %q. You have to remove (or rename) that container to be able to reuse that name.",
-		containerName, containerId)
-	noContainerError := fmt.Errorf("Error response from daemon: No such container: %s", containerId)
+	conflictError := fmt.Errorf("Error response from daemon: Conflict. The name \"/%s\" is already in use by container %q. You have to remove (or rename) that container to be able to reuse that name",
+		containerName, containerID)
+	noContainerError := fmt.Errorf("Error response from daemon: No such container: %s", containerID)
 	randomError := fmt.Errorf("random error")
 
 	for desc, test := range map[string]struct {
@@ -361,7 +356,7 @@ func TestContainerCreationConflict(t *testing.T) {
 			fDocker.InjectError("remove", test.removeError)
 		}
 
-		req := &runtimeapi.CreateContainerRequest{PodSandboxId: sandboxId, Config: config, SandboxConfig: sConfig}
+		req := &runtimeapi.CreateContainerRequest{PodSandboxId: sandboxID, Config: config, SandboxConfig: sConfig}
 		createResp, err := ds.CreateContainer(getTestCTX(), req)
 		require.Equal(t, test.expectError, err)
 		assert.NoError(t, fDocker.AssertCalls(test.expectCalls))

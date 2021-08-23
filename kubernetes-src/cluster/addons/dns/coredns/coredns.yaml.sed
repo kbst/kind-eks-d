@@ -108,9 +108,10 @@ spec:
     metadata:
       labels:
         k8s-app: kube-dns
-      annotations:
-        seccomp.security.alpha.kubernetes.io/pod: 'runtime/default'
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       priorityClassName: system-cluster-critical
       serviceAccountName: coredns
       affinity:
@@ -131,7 +132,7 @@ spec:
         kubernetes.io/os: linux
       containers:
       - name: coredns
-        image: k8s.gcr.io/coredns:1.7.0
+        image: k8s.gcr.io/coredns/coredns:v1.8.0
         imagePullPolicy: IfNotPresent
         resources:
           limits:

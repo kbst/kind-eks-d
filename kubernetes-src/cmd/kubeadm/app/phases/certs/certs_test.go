@@ -37,6 +37,7 @@ import (
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	certstestutil "k8s.io/kubernetes/cmd/kubeadm/app/util/certs"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/pkiutil"
+	pkiutiltesting "k8s.io/kubernetes/cmd/kubeadm/app/util/pkiutil/testing"
 	testutil "k8s.io/kubernetes/cmd/kubeadm/test"
 )
 
@@ -486,6 +487,8 @@ func TestSharedCertificateExists(t *testing.T) {
 func TestCreatePKIAssetsWithSparseCerts(t *testing.T) {
 	for _, test := range certstestutil.GetSparseCertTestCases(t) {
 		t.Run(test.Name, func(t *testing.T) {
+			pkiutiltesting.Reset()
+
 			tmpdir := testutil.SetupTempDir(t)
 			defer os.RemoveAll(tmpdir)
 
@@ -587,6 +590,8 @@ func TestUsingExternalCA(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			pkiutiltesting.Reset()
+
 			dir := testutil.SetupTempDir(t)
 			defer os.RemoveAll(dir)
 
@@ -707,7 +712,7 @@ func TestValidateMethods(t *testing.T) {
 }
 
 func TestNewCSR(t *testing.T) {
-	kubeadmCert := KubeadmCertAPIServer
+	kubeadmCert := KubeadmCertAPIServer()
 	cfg := testutil.GetDefaultInternalConfig(t)
 
 	certConfig, err := kubeadmCert.GetConfig(cfg)
@@ -715,7 +720,7 @@ func TestNewCSR(t *testing.T) {
 		t.Fatalf("couldn't get cert config: %v", err)
 	}
 
-	csr, _, err := NewCSR(&kubeadmCert, cfg)
+	csr, _, err := NewCSR(kubeadmCert, cfg)
 
 	if err != nil {
 		t.Errorf("invalid signature on CSR: %v", err)
@@ -776,6 +781,8 @@ func TestCreateCertificateFilesMethods(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		pkiutiltesting.Reset()
+
 		// Create temp folder for the test case
 		tmpdir := testutil.SetupTempDir(t)
 		defer os.RemoveAll(tmpdir)

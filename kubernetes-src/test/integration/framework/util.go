@@ -26,15 +26,14 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+	v1helper "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
-	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	nodectlr "k8s.io/kubernetes/pkg/controller/nodelifecycle"
-	testutils "k8s.io/kubernetes/test/utils"
 )
 
 const (
@@ -101,9 +100,6 @@ func waitListSchedulableNodes(c clientset.Interface) (*v1.NodeList, error) {
 			"spec.unschedulable": "false",
 		}.AsSelector().String()})
 		if err != nil {
-			if testutils.IsRetryableAPIError(err) {
-				return false, nil
-			}
 			return false, err
 		}
 		return true, nil
@@ -166,6 +162,7 @@ func isConditionUnset(node *v1.Node, conditionType v1.NodeConditionType) bool {
 	return true
 }
 
+// isNodeConditionSetAsExpected checks a node for a condition, and returns 'true' if the wanted value is the same as the condition value, useful for polling until a condition on a node is met.
 func isNodeConditionSetAsExpected(node *v1.Node, conditionType v1.NodeConditionType, wantTrue, silent bool) bool {
 	// Check the node readiness condition (logging all).
 	for _, cond := range node.Status.Conditions {
@@ -269,7 +266,8 @@ func isNodeUntainted(node *v1.Node) bool {
 		n = nodeCopy
 	}
 
-	return v1helper.TolerationsTolerateTaintsWithFilter(fakePod.Spec.Tolerations, n.Spec.Taints, func(t *v1.Taint) bool {
+	_, untolerated := v1helper.FindMatchingUntoleratedTaint(n.Spec.Taints, fakePod.Spec.Tolerations, func(t *v1.Taint) bool {
 		return t.Effect == v1.TaintEffectNoExecute || t.Effect == v1.TaintEffectNoSchedule
 	})
+	return !untolerated
 }

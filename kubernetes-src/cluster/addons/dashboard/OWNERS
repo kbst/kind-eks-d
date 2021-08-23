@@ -1,13 +1,12 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
 approvers:
-- bryk
 - floreks
 - jeefy
 - maciaszczykm
 reviewers:
-- cheld
 - danielromlein
 - ianlewis
-- konryd
 - rf232
+emeritus_approvers:
+- bryk
